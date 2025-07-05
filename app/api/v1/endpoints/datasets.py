@@ -1,10 +1,10 @@
+import csv
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
 from datetime import datetime, timezone
 import os
-import shutil
 
 from app.core.database import get_db
 from app.models.dataset import Dataset
@@ -58,10 +58,24 @@ async def upload_sample_dataset(project_id: int, file: UploadFile = File(...), d
         )
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file provided")
+
+    # Read file content for CSV parsing
+    content = await file.read()
+    content_str = content.decode("utf-8")
+
+    # Parse columns if it's a CSV file
+    if file.filename.endswith(".csv"):
+        reader = csv.DictReader(content_str.splitlines())
+        columns = reader.fieldnames
+    else:
+        columns = None
+
+    # Write the file to disk
     file_path = os.path.join(UPLOAD_DIR, f"sample_{file.filename}")
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    db_dataset = Dataset(file_path=file_path, is_sample=True, project_id=project_id)
+        buffer.write(content)  # Write the content we already read
+
+    db_dataset = Dataset(file_path=file_path, is_sample=True, project_id=project_id, columns=columns)
     db.add(db_dataset)
     await db.commit()
     await db.refresh(db_dataset)
@@ -79,9 +93,15 @@ async def create_dataset(project_id: int, file: UploadFile = File(...), db: Asyn
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file provided")
+
+    # Read file content
+    content = await file.read()
+
+    # Write the file to disk
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(content)  # Write the content we already read
+
     db_dataset = Dataset(file_path=file_path, is_sample=False, project_id=project_id)
     db.add(db_dataset)
     await db.commit()
@@ -109,9 +129,9 @@ async def update_dataset(dataset_id: int, dataset: DatasetUpdate, db: AsyncSessi
                 select(Dataset).where(Dataset.project_id == db_dataset.project_id, Dataset.is_sample.is_(True))
             )
             datasets = result.scalars().all()
-            for dataset in datasets:
-                dataset.is_sample = False
-        db_dataset.is_sample = True
+            for existing_dataset in datasets:
+                existing_dataset.is_sample = False
+        db_dataset.is_sample = dataset.is_sample
 
     # Set updated_at to current time
     db_dataset.updated_at = datetime.now(timezone.utc)
@@ -132,8 +152,8 @@ async def delete_dataset(dataset_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     # Delete the file if it exists
-    if os.path.exists(db_dataset.file_path):
-        os.remove(db_dataset.file_path)
+    if os.path.exists(str(db_dataset.file_path)):
+        os.remove(str(db_dataset.file_path))
 
     await db.delete(db_dataset)
     await db.commit()

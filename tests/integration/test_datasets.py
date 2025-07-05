@@ -48,7 +48,7 @@ class TestDatasetsAPI:
 
     async def test_upload_sample_dataset_success(self, client: AsyncClient, sample_project):
         """Test uploading a sample dataset."""
-        file_content = b"sample dataset content"
+        file_content = b"name,age,city\nJohn,25,NYC\nJane,30,LA"
         files = {"file": ("sample.csv", io.BytesIO(file_content), "text/csv")}
 
         response = await client.post(f"/api/v1/datasets/upload-sample?project_id={sample_project.id}", files=files)
@@ -59,6 +59,8 @@ class TestDatasetsAPI:
         assert "created_at" in dataset
         assert "updated_at" in dataset
         assert dataset["file_path"].endswith("sample.csv")
+        # Check that columns were extracted from CSV
+        assert dataset["columns"] == ["name", "age", "city"]
 
     async def test_upload_sample_dataset_project_not_found(self, client: AsyncClient):
         """Test uploading a sample dataset to non-existent project."""
@@ -145,7 +147,7 @@ class TestDatasetsAPI:
         assert created_data["created_at"] == created_data["updated_at"]
 
         # Update dataset
-        update_data = {"description": "Updated description"}
+        update_data = {"is_sample": True}
         update_response = await client.put(f"/api/v1/datasets/{created_data['id']}", json=update_data)
         assert update_response.status_code == 200
         updated_data = update_response.json()
@@ -153,3 +155,40 @@ class TestDatasetsAPI:
         # updated_at should be different from created_at after update
         assert updated_data["created_at"] == created_data["created_at"]
         assert updated_data["updated_at"] != created_data["updated_at"]
+
+    async def test_upload_sample_dataset_non_csv(self, client: AsyncClient, sample_project):
+        """Test uploading a sample dataset with non-CSV file."""
+        file_content = b"some binary content"
+        files = {"file": ("sample.txt", io.BytesIO(file_content), "text/plain")}
+
+        response = await client.post(f"/api/v1/datasets/upload-sample?project_id={sample_project.id}", files=files)
+        assert response.status_code == 201
+        dataset = response.json()
+        assert dataset["is_sample"] is True
+        assert dataset["project_id"] == sample_project.id
+        # Check that columns is None for non-CSV files
+        assert dataset["columns"] is None
+
+    async def test_update_dataset_success(self, client: AsyncClient, sample_dataset):
+        """Test updating a dataset."""
+        update_data = {"is_sample": True}
+        response = await client.put(f"/api/v1/datasets/{sample_dataset.id}", json=update_data)
+        assert response.status_code == 200
+        updated_dataset = response.json()
+        assert updated_dataset["is_sample"] is True
+        assert updated_dataset["id"] == sample_dataset.id
+
+    async def test_update_dataset_not_found(self, client: AsyncClient):
+        """Test updating a dataset that doesn't exist."""
+        update_data = {"is_sample": True}
+        response = await client.put("/api/v1/datasets/999", json=update_data)
+        assert response.status_code == 404
+        assert "Dataset not found" in response.json()["detail"]
+
+    async def test_update_dataset_file_path(self, client: AsyncClient, sample_dataset):
+        """Test updating a dataset's file path."""
+        update_data = {"file_path": "uploads/updated_file.csv"}
+        response = await client.put(f"/api/v1/datasets/{sample_dataset.id}", json=update_data)
+        assert response.status_code == 200
+        updated_dataset = response.json()
+        assert updated_dataset["file_path"] == "uploads/updated_file.csv"

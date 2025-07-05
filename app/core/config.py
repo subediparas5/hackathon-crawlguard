@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # AI/ML Services
+    deepseek_api_key: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

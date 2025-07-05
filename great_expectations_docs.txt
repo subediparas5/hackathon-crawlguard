@@ -1,0 +1,109 @@
+# Great Expectations Expectations Catalog
+
+## Column Aggregate Expectations
+(Operate on entire columns and produce aggregate metrics)
+
+### Value Set Comparisons
+- `expect_column_distinct_values_to_be_in_set(column, value_set)`
+  - Expect all distinct values in column to be within given set
+- `expect_column_distinct_values_to_contain_set(column, value_set)`
+  - Expect column's distinct values to contain all values from given set
+- `expect_column_distinct_values_to_equal_set(column, value_set)`
+  - Expect column's distinct values to exactly match given set
+
+### Statistical Measures
+- `expect_column_kl_divergence_to_be_less_than(column, partition_object, threshold, ...)`
+  - Expect KL divergence between column distribution and reference to be < threshold
+- `expect_column_max_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect column's maximum value to be in range
+- `expect_column_median_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect column's median to be in range
+- `expect_column_min_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect column's minimum value to be in range
+- `expect_column_stdev_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect column's standard deviation to be in range
+- `expect_column_sum_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect sum of column values to be in range
+
+### Value Distribution
+- `expect_column_most_common_value_to_be_in_set(column, value_set, ties_okay)`
+  - Expect the mode(s) to be within given set
+- `expect_column_proportion_of_non_null_values_to_be_between(column, min_value, max_value, ...)`
+  - Expect % of non-null values to be in range (0–1)
+- `expect_column_proportion_of_unique_values_to_be_between(column, min_value, max_value, ...)`
+  - Expect % of unique values to be in range (0–1)
+- `expect_column_quantile_values_to_be_between(column, quantile_ranges, allow_relative_error)`
+  - Expect specific quantiles to be within ranges
+- `expect_column_unique_value_count_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect number of unique values to be in range
+
+## Column Map Expectations
+(Check each row in a column individually)
+
+### Value Checks
+- `expect_column_values_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect each value to be in range
+- `expect_column_values_to_be_in_set(column, value_set)`
+  - Expect each value to be in given set
+- `expect_column_values_to_be_null(column)`
+  - Expect all values to be null
+- `expect_column_values_to_be_of_type(column, type_)`
+  - Expect values to be of specified type
+- `expect_column_values_to_be_unique(column)`
+  - Expect all values to be distinct
+- `expect_column_values_to_not_be_in_set(column, value_set)`
+  - Expect values to not be in given set
+- `expect_column_values_to_not_be_null(column)`
+  - Expect no null values
+
+### String Operations
+- `expect_column_value_lengths_to_be_between(column, min_value, max_value, strict_min, strict_max)`
+  - Expect string lengths to be in range
+- `expect_column_value_lengths_to_equal(column, value)`
+  - Expect strings to have exact length
+- `expect_column_values_to_match_regex(column, regex)`
+  - Expect strings to match regex pattern
+- `expect_column_values_to_match_regex_list(column, regex_list, match_on)`
+  - Expect strings to match any/all regexes
+- `expect_column_values_to_not_match_regex(column, regex)`
+  - Expect strings to not match regex
+- `expect_column_values_to_not_match_regex_list(column, regex_list)`
+  - Expect strings to not match any regex
+
+### Statistical Outliers
+- `expect_column_value_z_scores_to_be_less_than(column, threshold, double_sided)`
+  - Expect Z-scores to be below threshold
+
+## Multi-Column Expectations
+(Check relationships between columns)
+
+- `expect_column_pair_values_a_to_be_greater_than_b(column_A, column_B, or_equal)`
+  - Expect column A > column B for each row
+- `expect_column_pair_values_to_be_equal(column_A, column_B)`
+  - Expect column A == column B for each row
+- `expect_column_pair_values_to_be_in_set(column_A, column_B, value_pairs_set)`
+  - Expect pairs to be in valid combinations
+- `expect_compound_columns_to_be_unique(column_list)`
+  - Expect combined columns to be unique
+- `expect_multicolumn_sum_to_equal(column_list, sum_total)`
+  - Expect sum of columns to equal value per row
+- `expect_select_column_values_to_be_unique_within_record(column_list)`
+  - Expect values to be unique within each row
+
+## Table-Level Expectations
+(Check table properties)
+
+- `expect_column_to_exist(column)`
+  - Verify column exists in table
+- `expect_table_column_count_to_be_between(min_value, max_value)`
+  - Expect column count in range
+- `expect_table_column_count_to_equal(value)`
+  - Expect exact column count
+- `expect_table_columns_to_match_ordered_list(column_list)`
+  - Expect columns in exact order
+- `expect_table_columns_to_match_set(column_set, exact_match)`
+  - Expect columns to match set (ordered or unordered)
+- `expect_table_row_count_to_be_between(min_value, max_value, strict_min, strict_max)`
+  - Expect row count in range
+- `expect_table_row_count_to_equal(value)`
+  - Expect exact row count

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from typing import List, Optional
 
 
 class DatasetBase(BaseModel):
@@ -23,6 +24,7 @@ class DatasetResponse(DatasetBase):
     id: int
     file_path: str
     is_sample: bool
+    columns: Optional[List[str]] = None
     project_id: int
     created_at: datetime
     updated_at: datetime

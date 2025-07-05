@@ -40,6 +40,10 @@ class SuggestedRulesResponse(BaseModel):
     rules: list[Dict[str, Any]] = Field(..., description="List of suggested rules")
 
 
+class SuggestedRuleResponse(BaseModel):
+    rule: Dict[str, Any] = Field(..., description="Suggested rule")
+
+
 class EnhancePromptRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Original prompt to enhance")
 

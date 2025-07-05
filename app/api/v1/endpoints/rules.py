@@ -1,3 +1,7 @@
+import json
+import asyncio
+from app.core.prompts import DeepSeekRuleGenerator
+from app.models.dataset import Dataset
 from fastapi import APIRouter, Depends, HTTPException, status, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -5,13 +9,14 @@ from typing import List
 from datetime import datetime, timezone
 
 from app.core.database import get_db
+from app.models.project import Project
 from app.models.rule import Rule
+from app.models.suggested_rules import SuggestedRules
 from app.schemas.rule import (
     RuleBase,
     RuleResponse,
     RuleUpdate,
     SuggestedRulesResponse,
-    EnhancePromptResponse,
     AddRuleRequest,
     AddRuleResponse,
 )
@@ -19,51 +24,179 @@ from app.schemas.rule import (
 router = APIRouter()
 
 
+async def generate_rules_async(
+    project_id: int, project_description: str, sample_data_str: str = "", sample_data_columns: List[str] | None = None
+):
+    """Asynchronously generate rules using AI"""
+    try:
+        rule_generator = DeepSeekRuleGenerator(project_description=project_description)
+
+        # Run AI calls concurrently
+        project_description_task = asyncio.create_task(
+            asyncio.to_thread(rule_generator.get_suggested_rules_from_project_description)
+        )
+
+        sample_data_task = None
+        if sample_data_str:
+            sample_data_task = asyncio.create_task(
+                asyncio.to_thread(
+                    rule_generator.get_suggested_rules_from_sample_data,
+                    sample_data_str,
+                    {"columns": sample_data_columns},
+                )
+            )
+
+        # Wait for both tasks to complete
+        project_description_rule_str = await project_description_task
+        print(f"Project description response: {project_description_rule_str[:200]}...")
+
+        if sample_data_task:
+            sample_data_rule_str = await sample_data_task
+            print(f"Sample data response: {sample_data_rule_str[:200]}...")
+        else:
+            sample_data_rule_str = ""
+
+        # Parse results with better error handling
+        project_description_rules = []
+        if project_description_rule_str and project_description_rule_str.strip():
+            try:
+                project_description_rules = json.loads(project_description_rule_str)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse project description rules JSON: {e}")
+                print(f"Raw response: {project_description_rule_str}")
+
+        sample_data_rules = []
+        if sample_data_rule_str and sample_data_rule_str.strip():
+            try:
+                sample_data_rules = json.loads(sample_data_rule_str)
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse sample data rules JSON: {e}")
+                print(f"Raw response: {sample_data_rule_str}")
+
+        # Merge rules
+        suggested_rules = project_description_rules + sample_data_rules
+
+        return suggested_rules
+    except Exception as e:
+        print(f"Error generating rules: {e}")
+        return []
+
+
+@router.get("/suggested-rules", response_model=SuggestedRulesResponse)
 @router.post("/suggested-rules", response_model=SuggestedRulesResponse)
-async def get_suggested_rules(project_id: int = Path(...), db: AsyncSession = Depends(get_db)):
-    """Get suggested rules for a project (mock response)"""
-    # Mock response with suggested rules
-    suggested_rules = [
-        {
-            "name": "Category Validation",
-            "description": "Validates categories are from allowed list",
-            "natural_language_rule": "Categories must be Electronics, Clothing, or Books",
-            "great_expectations_rule": {
-                "expectation_type": "expect_column_values_to_be_in_set",
-                "kwargs": {"column": "category", "value_set": ["Electronics", "Clothing", "Books"]},
+async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db)):
+    """Get suggested rules for a project"""
+
+    project = await db.execute(select(Project).where(Project.id == project_id))
+    project = project.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    # check database for previously suggested rules, if available on db return that else generate new rules
+    result = await db.execute(
+        select(SuggestedRules)
+        .where(SuggestedRules.project_id == project_id)
+        .order_by(SuggestedRules.created_at.desc())
+        .limit(1)
+    )
+    suggested_rules = result.scalar_one_or_none()
+    if suggested_rules:
+        return SuggestedRulesResponse(rules=json.loads(suggested_rules.rules))
+
+    # get the sample data for the project
+    sample_data = await db.execute(select(Dataset).where(Dataset.project_id == project_id, Dataset.is_sample.is_(True)))
+    sample_data = sample_data.scalar_one_or_none()
+
+    sample_data_str = ""
+    sample_data_columns = None
+
+    if sample_data:
+        with open(str(sample_data.file_path), encoding="utf-8") as file:
+            sample_data_str: str = file.read()
+
+        # Randomize sample data (header + 10 random rows)
+        lines = sample_data_str.splitlines()
+        if len(lines) > 11:  # More than header + 10 rows
+            import random
+
+            header = lines[0]
+            data_rows = lines[1:]
+            random_rows = random.sample(data_rows, min(10, len(data_rows)))
+            sample_data_str = "\n".join([header] + random_rows)
+
+        sample_data_columns = sample_data.columns
+
+    print("Starting to generate rules")
+
+    # Generate rules asynchronously
+    project_description = project.description if project.description else "No description provided"
+    suggested_rules = await generate_rules_async(project_id, project_description, sample_data_str, sample_data_columns)
+
+    print("Rules generated")
+    print(suggested_rules)
+
+    if not suggested_rules:
+        print("No rules generated, returning mock rules")
+        # Return mock rules as fallback
+        suggested_rules = [
+            {
+                "name": "Data Completeness Check",
+                "description": "Ensure all required fields are populated",
+                "natural_language_rule": "All required fields should not be null",
+                "great_expectations_rule": {
+                    "expectation_type": "expect_column_values_to_not_be_null",
+                    "kwargs": {"column": "required_field"},
+                },
+                "type": "completeness",
             },
-            "type": "column_values_in_set",
-        },
-        {
-            "name": "Price Range Validation",
-            "description": "Validates price is within acceptable range",
-            "natural_language_rule": "Price must be between 0 and 10000",
-            "great_expectations_rule": {
-                "expectation_type": "expect_column_values_to_be_between",
-                "kwargs": {"column": "price", "min_value": 0, "max_value": 10000},
+            {
+                "name": "Data Type Validation",
+                "description": "Validate data types match expected format",
+                "natural_language_rule": "Data should be in the correct format",
+                "great_expectations_rule": {
+                    "expectation_type": "expect_column_values_to_be_of_type",
+                    "kwargs": {"column": "data_column", "type_": "string"},
+                },
+                "type": "dtype",
             },
-            "type": "column_values_between",
-        },
-        {
-            "name": "Required Fields Validation",
-            "description": "Validates required fields are not null",
-            "natural_language_rule": "Product name and description must not be empty",
-            "great_expectations_rule": {
-                "expectation_type": "expect_column_values_to_not_be_null",
-                "kwargs": {"column": ["product_name", "description"]},
-            },
-            "type": "column_values_not_null",
-        },
-    ]
+        ]
+
+    # save the rules to the database
+    suggested_rules_obj = SuggestedRules(project_id=project_id, rules=json.dumps(suggested_rules))
+    db.add(suggested_rules_obj)
+    await db.commit()
+    await db.refresh(suggested_rules_obj)
 
     return SuggestedRulesResponse(rules=suggested_rules)
 
 
-@router.post("/enhance-prompt", response_model=EnhancePromptResponse)
-async def enhance_prompt(project_id: int = Path(...), prompt: str = ""):
-    """Enhance a natural language prompt for rule creation"""
-    enhanced_prompt = f"Enhanced: {prompt}"
-    return EnhancePromptResponse(enhanced_prompt=enhanced_prompt)
+@router.post("/prompt-to-rules", response_model=SuggestedRulesResponse)
+async def prompt_to_rules(project_id: int = Path(...), prompt: str = "", db: AsyncSession = Depends(get_db)):
+    """Convert a natural language prompt to rules"""
+
+    return SuggestedRulesResponse(rules=[])
+    # get the sample data for the project
+    sample_data = await db.execute(select(Dataset).where(Dataset.project_id == project_id, Dataset.is_sample.is_(True)))
+    sample_data = sample_data.scalar_one_or_none()
+    if not sample_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample data not found")
+
+    with open(str(sample_data.file_path), encoding="utf-8") as file:
+        sample_data_str: str = file.read()
+
+    # Randomize sample data (header + 10 random rows)
+    lines = sample_data_str.splitlines()
+    if len(lines) > 11:  # More than header + 10 rows
+        import random
+
+        header = lines[0]
+        data_rows = lines[1:]
+        random_rows = random.sample(data_rows, min(10, len(data_rows)))
+        sample_data_str = "\n".join([header] + random_rows)
+
+    rule_generator = DeepSeekRuleGenerator(sample_data_str)
+    response = rule_generator.get_suggested_rules(user_prompt=prompt)
+    return SuggestedRulesResponse(rules=json.loads(response))
 
 
 @router.get("/", response_model=List[RuleResponse])

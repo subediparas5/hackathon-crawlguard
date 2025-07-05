@@ -25,6 +25,7 @@ class Project(Base):
     # Relationships
     datasets = relationship("Dataset", back_populates="project", cascade="all, delete-orphan")
     rules = relationship("Rule", back_populates="project", cascade="all, delete-orphan")
+    suggested_rules = relationship("SuggestedRules", back_populates="project", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Project(id={self.id}, name={self.name}, status={self.status})>"

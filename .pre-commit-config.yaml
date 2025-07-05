@@ -1,4 +1,4 @@
-exclude: src/autogen/|src/test.py|src/models/influx/
+exclude: app/core/prompts.py
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.3.0

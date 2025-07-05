@@ -17,7 +17,10 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "email-validator>=2.0.0",
     "pytest-asyncio>=0.21.0",
-    "python-multipart>=0.0.6"
+    "python-multipart>=0.0.6",
+    "openai>=1.0.0",
+    "great-expectations>=1.5.4",
+    "numpy==1.26.4",
 ]
 
 [project.optional-dependencies]
