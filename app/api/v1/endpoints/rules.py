@@ -8,6 +8,8 @@ from sqlalchemy import select
 from typing import List
 from datetime import datetime, timezone
 
+from app.core.data_quality.validator_factory import ValidatorFactory
+
 from app.core.database import get_db
 from app.models.project import Project
 from app.models.rule import Rule
@@ -270,6 +272,7 @@ async def add_rule(request: AddRuleRequest, project_id: int = Path(...), db: Asy
 @router.post("/", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule(rule: RuleBase, project_id: int = Path(...), db: AsyncSession = Depends(get_db)):
     """Create a new rule"""
+    
     # Use project_id from path, ignore any in body
     db_rule = Rule(
         project_id=project_id,
@@ -285,6 +288,65 @@ async def create_rule(rule: RuleBase, project_id: int = Path(...), db: AsyncSess
     await db.refresh(db_rule)
 
     return db_rule
+
+
+# For add rule with validation
+@router.post("/add_rule_with_validation", status_code=status.HTTP_201_CREATED)
+async def create_rule_validation(rule: RuleBase, project_id: int = Path(...), is_forced = False , db: AsyncSession = Depends(get_db)):
+    """Create a new rule with validation"""
+    # Use project_id from path, ignore any in body
+    db_rule = Rule(
+        project_id=project_id,
+        name=rule.name,
+        description=rule.description,
+        natural_language_rule=rule.natural_language_rule,
+        great_expectations_rule=rule.great_expectations_rule,
+        type=rule.type,
+    )
+
+    if  is_forced :
+            # For sample dataset
+        sample_data_query = (
+            select(Dataset)
+            .where(
+                Dataset.project_id == project_id            )
+        )
+
+        sample_data_result = await db.execute(sample_data_query)
+        sample_data_datasets = sample_data_result.scalars().all()
+
+        rule_to_be_applied = [
+            {
+                "name": db_rule.name,
+                "description": db_rule.description,
+                "natural_language_rule": db_rule.natural_language_rule,
+                "great_expectations_rule": db_rule.great_expectations_rule,
+                "type": db_rule.type,
+            }
+        ]
+
+        # return sample_data_datasets
+        validator = ValidatorFactory.create_validator(str(sample_data_datasets[0].file_path))
+
+        try:
+            validation_results = validator.validate_rules(rule_to_be_applied)
+            if not validation_results:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No validation results found")
+
+            if validation_results[0].passed :
+                db.add(db_rule)
+                await db.commit()
+                await db.refresh(db_rule)
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Validation error: {str(e)}")
+    else:
+        db.add(db_rule)
+        await db.commit()
+        await db.refresh(db_rule)
+
+    return db_rule
+
+
 
 
 @router.put("/{rule_id}", response_model=RuleResponse)
