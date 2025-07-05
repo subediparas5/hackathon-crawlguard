@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # AI/ML Services
-    deepseek_api_key: str = "sk-5e52629cf4124e68a29c57987cbb1e8a"
+    deepseek_api_key: str = ""
 
     class Config:
         env_file = ".env"
