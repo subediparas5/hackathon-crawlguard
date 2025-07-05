@@ -19,8 +19,6 @@ from app.schemas.rule import (
     RuleResponse,
     RuleUpdate,
     SuggestedRulesResponse,
-    AddRuleRequest,
-    AddRuleResponse,
 )
 import pandas as pd
 
@@ -239,60 +237,11 @@ async def get_rule_by_id(project_id: int = Path(...), rule_id: int = Path(...), 
     return rule
 
 
-@router.post("/add-rule", response_model=AddRuleResponse, status_code=status.HTTP_201_CREATED)
-async def add_rule(request: AddRuleRequest, project_id: int = Path(...), db: AsyncSession = Depends(get_db)):
-    """Add a new rule to a project"""
-    # Use project_id from path
-    rule_name = f"Rule from prompt: {request.prompt[:50]}..."
-    rule_type = "custom_validation"
-
-    # Mock Great Expectations rule structure
-    great_expectations_rule = {
-        "expectation_type": "expect_column_values_to_match_regex",
-        "kwargs": {"column": "data_column", "regex": ".*"},
-    }
-
-    # Create the rule
-    db_rule = Rule(
-        project_id=project_id,
-        name=rule_name,
-        description=request.note,
-        natural_language_rule=request.prompt,
-        great_expectations_rule=great_expectations_rule,
-        type=rule_type,
-    )
-
-    db.add(db_rule)
-    await db.commit()
-    await db.refresh(db_rule)
-
-    return AddRuleResponse(rule_id=db_rule.id)
-
-
-@router.post("/", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
-async def create_rule(rule: RuleBase, project_id: int = Path(...), db: AsyncSession = Depends(get_db)):
-    """Create a new rule"""
-    
-    # Use project_id from path, ignore any in body
-    db_rule = Rule(
-        project_id=project_id,
-        name=rule.name,
-        description=rule.description,
-        natural_language_rule=rule.natural_language_rule,
-        great_expectations_rule=rule.great_expectations_rule,
-        type=rule.type,
-    )
-
-    db.add(db_rule)
-    await db.commit()
-    await db.refresh(db_rule)
-
-    return db_rule
-
-
 # For add rule with validation
-@router.post("/add_rule_with_validation", status_code=status.HTTP_201_CREATED)
-async def create_rule_validation(rule: RuleBase, project_id: int = Path(...), is_forced = False , db: AsyncSession = Depends(get_db)):
+@router.post("/", status_code=status.HTTP_201_CREATED)
+async def create_rule_validation(
+    rule: RuleBase, project_id: int = Path(...), is_forced=False, db: AsyncSession = Depends(get_db)
+):
     """Create a new rule with validation"""
     # Use project_id from path, ignore any in body
     db_rule = Rule(
@@ -304,13 +253,9 @@ async def create_rule_validation(rule: RuleBase, project_id: int = Path(...), is
         type=rule.type,
     )
 
-    if  is_forced :
-            # For sample dataset
-        sample_data_query = (
-            select(Dataset)
-            .where(
-                Dataset.project_id == project_id            )
-        )
+    if is_forced:
+        # For sample dataset
+        sample_data_query = select(Dataset).where(Dataset.project_id == project_id)
 
         sample_data_result = await db.execute(sample_data_query)
         sample_data_datasets = sample_data_result.scalars().all()
@@ -333,7 +278,7 @@ async def create_rule_validation(rule: RuleBase, project_id: int = Path(...), is
             if not validation_results:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No validation results found")
 
-            if validation_results[0].passed :
+            if validation_results[0].get("passes", False):
                 db.add(db_rule)
                 await db.commit()
                 await db.refresh(db_rule)
@@ -345,8 +290,6 @@ async def create_rule_validation(rule: RuleBase, project_id: int = Path(...), is
         await db.refresh(db_rule)
 
     return db_rule
-
-
 
 
 @router.put("/{rule_id}", response_model=RuleResponse)
@@ -361,15 +304,15 @@ async def update_rule(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
     # Update rule fields
-    if rule.name is not None:
+    if rule.name:
         db_rule.name = rule.name
-    if rule.description is not None:
+    if rule.description:
         db_rule.description = rule.description
-    if rule.natural_language_rule is not None:
+    if rule.natural_language_rule:
         db_rule.natural_language_rule = rule.natural_language_rule
-    if rule.great_expectations_rule is not None:
+    if rule.great_expectations_rule:
         db_rule.great_expectations_rule = rule.great_expectations_rule
-    if rule.type is not None:
+    if rule.type:
         db_rule.type = rule.type
 
     # Set updated_at to current time
