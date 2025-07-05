@@ -1,6 +1,6 @@
 import json
 import asyncio
-from app.core.prompts import DeepSeekRuleGenerator
+from app.core.prompts import DeepSeekRuleGenerator, PromptToRule
 from app.models.dataset import Dataset
 from fastapi import APIRouter, Depends, HTTPException, status, Path
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from app.schemas.rule import (
     AddRuleRequest,
     AddRuleResponse,
 )
+import pandas as pd
 
 router = APIRouter()
 
@@ -161,6 +162,16 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
             },
         ]
 
+    # if random chatgpt generated rules for random columns
+    for rule in suggested_rules:
+        column_name = rule.get("great_expectations_rule", {}).get("kwargs", {}).get("column", "")
+        if not column_name:
+            continue
+
+        if column_name not in sample_data_columns:
+            print(f"Removing rule for column {column_name} because it is not in the sample data")
+            suggested_rules.remove(rule)
+
     # save the rules to the database
     suggested_rules_obj = SuggestedRules(project_id=project_id, rules=json.dumps(suggested_rules))
     db.add(suggested_rules_obj)
@@ -174,29 +185,29 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
 async def prompt_to_rules(project_id: int = Path(...), prompt: str = "", db: AsyncSession = Depends(get_db)):
     """Convert a natural language prompt to rules"""
 
-    return SuggestedRulesResponse(rules=[])
     # get the sample data for the project
     sample_data = await db.execute(select(Dataset).where(Dataset.project_id == project_id, Dataset.is_sample.is_(True)))
     sample_data = sample_data.scalar_one_or_none()
     if not sample_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample data not found")
 
+    # Read the actual file content
     with open(str(sample_data.file_path), encoding="utf-8") as file:
-        sample_data_str: str = file.read()
+        df = pd.read_csv(file)
 
-    # Randomize sample data (header + 10 random rows)
-    lines = sample_data_str.splitlines()
-    if len(lines) > 11:  # More than header + 10 rows
-        import random
+    # Check if DataFrame has data before sampling
+    if len(df) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Sample data file is empty")
 
-        header = lines[0]
-        data_rows = lines[1:]
-        random_rows = random.sample(data_rows, min(10, len(data_rows)))
-        sample_data_str = "\n".join([header] + random_rows)
+    sample_size = min(100, len(df))
+    sample_df = df.sample(n=sample_size, random_state=42)
 
-    rule_generator = DeepSeekRuleGenerator(sample_data_str)
+    sample_data_str = sample_df.to_csv(index=False)
+
+    rule_generator = PromptToRule(sample_data_str)
     response = rule_generator.get_suggested_rules(user_prompt=prompt)
-    return SuggestedRulesResponse(rules=json.loads(response))
+
+    return SuggestedRulesResponse(rules=response)
 
 
 @router.get("/", response_model=List[RuleResponse])

@@ -1,4 +1,6 @@
 # import pandas as pd
+import json
+from typing import Any
 from openai import OpenAI
 
 from app.core.config import settings
@@ -71,7 +73,7 @@ class DeepSeekRuleGenerator:
             {"role": "user", "content": f"### description:\n{self.project_description.strip()}"},
         ]
 
-        response = self.client.chat.completions.create(model="deepseek-chat", messages=messages, stream=False)
+        response = self.client.chat.completions.create(model="deepseek-chat", messages=messages, stream=False,)
 
         base_rules_json = response.choices[0].message.content
 
@@ -105,7 +107,7 @@ class DeepSeekRuleGenerator:
         ]
 
         response2 = self.client.chat.completions.create(
-            model="deepseek-chat", messages=messages_with_user_prompt, stream=False
+            model="deepseek-chat", messages=messages_with_user_prompt, stream=False,
         )
 
         # remove ```json and ``` from the response
@@ -161,7 +163,7 @@ class DeepSeekRuleGenerator:
             },
         ]
 
-        meta_data_json = self.client.chat.completions.create(model="deepseek-chat", messages=messages, stream=False)
+        meta_data_json = self.client.chat.completions.create(model="deepseek-chat", messages=messages, stream=False,)
 
         messages_sample_only = [
             {
@@ -220,7 +222,7 @@ class DeepSeekRuleGenerator:
         ]
 
         response = self.client.chat.completions.create(
-            model="deepseek-chat", messages=messages_sample_only, stream=False
+            model="deepseek-chat", messages=messages_sample_only, stream=False,
         )
 
         # remove ```json and ``` from the response
@@ -228,3 +230,58 @@ class DeepSeekRuleGenerator:
         content = content.replace("```json", "").replace("```", "")
 
         return content
+
+
+class PromptToRule:
+    def __init__(self, sample_data: str = ""):
+        self.sample_data = sample_data.strip()
+        base_url = "https://api.deepseek.com/v1"
+        self.client = OpenAI(api_key=API_KEY, base_url=base_url)
+
+        with open("great_expectations_docs.txt", encoding="utf-8") as file:
+            self.great_expectation_docs = file.read()
+
+    def get_suggested_rules(self, user_prompt: str, base_rules_json: str= "") -> dict[str, Any]:
+        messages_with_user_prompt = [
+            {
+            "role": "system",
+            "content": (
+                "You are a senior data quality engineer and Great Expectations expert.\n\n"
+                "You are given a set of base rules generated from clean sample data, and a user instruction. "
+                "Your task is to revise or extend the rules based on the user instruction **strictly**.\n\n"
+                "Rules must be updated as follows:\n"
+                "- Only revise rules related to the columns explicitly mentioned in the user instruction.\n"
+                "- If a matching rule exists for a column, attempt to **tweak** it (e.g., update regex, expand a value set, "
+                "widen a numeric range, adjust a length limit, or modify a min/max threshold) to satisfy the user’s request — "
+                "but only if the original rule is the same in nature (e.g., a regex should remain a regex, a range stays a range).\n"
+                "- If no matching rule can be safely modified, **add a new rule** instead of replacing or removing the existing one.\n"
+                "- Never modify or delete rules related to columns not mentioned in the instruction.\n"
+                "- Prefer **declarative expectations** (e.g., `expect_column_values_to_be_of_type`, `expect_column_values_to_be_in_set`, "
+                "`expect_column_values_to_be_between`, `expect_table_column_count_to_equal`, `expect_table_columns_to_match_ordered_list`) "
+                "over regex-based rules when possible.\n"
+                "- Use regex only if there is no simpler alternative, and keep it as minimal and readable as possible.\n\n"
+
+                "also look at the documentation provided below to get the function for great expectations"
+                f"### Great Expectations Documentation:\n{self.great_expectation_docs.strip()}"
+                "Output only the updated JSON array of expectations. Do not include any explanation or extra text."
+                )
+                },
+                {
+                    "role": "user",
+                    "content": f"### User Instruction:\n{user_prompt.strip()}"
+                },
+                {
+                    "role": "user",
+                    "content": f"### Sample CSV:\n{self.sample_data}"
+                }
+        ]
+
+        if base_rules_json:
+            messages_with_user_prompt.insert(1, {"role": "user", "content": f"### Original Rules:\n{base_rules_json}"})
+
+        response = self.client.chat.completions.create(model="deepseek-chat", messages=messages_with_user_prompt, stream=False,)
+
+        content = response.choices[0].message.content
+        content = content.replace("```json", "").replace("```", "")
+
+        return json.loads(content)
