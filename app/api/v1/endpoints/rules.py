@@ -254,7 +254,7 @@ async def create_rule_validation(
         type=rule.type,
     )
 
-    if is_forced:
+    if not is_forced:
         # For sample dataset
         sample_data_query = select(Dataset).where(Dataset.project_id == project_id)
 
@@ -279,7 +279,7 @@ async def create_rule_validation(
             if not validation_results:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No validation results found")
 
-            if validation_results[0].get("passes", False):
+            if validation_results[0].get("passed", False):
                 db.add(db_rule)
                 await db.commit()
                 await db.refresh(db_rule)

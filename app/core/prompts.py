@@ -284,32 +284,32 @@ class PromptToRule:
 
     def update_rules_using_natural_language(self, column_name:str, natural_language_rule:str) ->dict[str, Any]:
         messages_with_user_prompt = [
-{
-  "role": "system",
-  "content": (
-    "You are a senior data quality engineer and expert in Great Expectations (GE).\n\n"
+            {
+            "role": "system",
+            "content": (
+                "You are a senior data quality engineer and expert in Great Expectations (GE).\n\n"
 
-    "You are given a `natural_language_rule` which needs to make a new rule, in a column provided by the user.\n"
-    "Your task is to make a rule block based on this new natural language instruction on the column also given, while ensuring the updated rule is valid and consistent with Great Expectations standards.\n\n"
+                "You are given a `natural_language_rule` which needs to make a new rule, in a column provided by the user.\n"
+                "Your task is to make a rule block based on this new natural language instruction on the column also given, while ensuring the updated rule is valid and consistent with Great Expectations standards.\n\n"
 
-    "You must:\n"
-    "- use the natural language to change the rule and the rule needs to be applied to the given column\n"
-    "- If the rule becomes invalid or unclear, use the provided sample data (assumed to be valid) to infer the correct expectation logic.\n\n"
-    "### Great Expectations documentation:\n"
-    f"{self.great_expectation_docs.strip()}\n\n"
+                "You must:\n"
+                "- use the natural language to change the rule and the rule needs to be applied to the given column\n"
+                "- If the rule becomes invalid or unclear, use the provided sample data (assumed to be valid) to infer the correct expectation logic.\n\n"
+                "### Great Expectations documentation:\n"
+                f"{self.great_expectation_docs.strip()}\n\n"
 
-    "### Sample CSV:\n"
-    f"{self.sample_data.strip()}\n\n"
+                "### Sample CSV:\n"
+                f"{self.sample_data.strip()}\n\n"
 
-    "For rule, output a JSON object with:\n"
-    "- `name`: Short descriptive name\n"
-    "- `description`: Why the rule exists, optionally referencing metadata\n"
-    "- `natural_language_rule`: the natural_language_rule provided below\n"
-    "- `great_expectations_rule`: A JSON object using Great Expectations official format (`expectation_type`, `kwargs`, etc.)\n"
-    "- `type`: One of: column_exists, uniqueness, range, regex, conditional, dtype, etc.\n\n"
-    "Only return the **updated rule block JSON**. Do not include explanations or comments."
-  )
-}
+                "For rule, output a JSON object with:\n"
+                "- `name`: Short descriptive name\n"
+                "- `description`: Why the rule exists, optionally referencing metadata\n"
+                "- `natural_language_rule`: the natural_language_rule provided below\n"
+                "- `great_expectations_rule`: A JSON object using Great Expectations official format (`expectation_type`, `kwargs`, etc.)\n"
+                "- `type`: One of: column_exists, uniqueness, range, regex, conditional, dtype, etc.\n\n"
+                "Only return the **updated rule block JSON**. Do not include explanations or comments."
+            )
+            },
         {
             "role": "user",
             "content": f"### natural_language_rule:\n{natural_language_rule}"
@@ -320,7 +320,7 @@ class PromptToRule:
         }
 
 
-                ]
+        ]
 
         response = self.client.chat.completions.create(model="deepseek-chat", messages=messages_with_user_prompt, stream=False,)
 
