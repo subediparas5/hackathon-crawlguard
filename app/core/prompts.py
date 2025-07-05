@@ -1,6 +1,8 @@
 # import pandas as pd
 import json
-from typing import Any
+from random import sample
+from typing import Any, Dict
+
 from openai import OpenAI
 
 from app.core.config import settings
@@ -231,7 +233,6 @@ class DeepSeekRuleGenerator:
 
         return content
 
-
 class PromptToRule:
     def __init__(self, sample_data: str = ""):
         self.sample_data = sample_data.strip()
@@ -240,6 +241,94 @@ class PromptToRule:
 
         with open("great_expectations_docs.txt", encoding="utf-8") as file:
             self.great_expectation_docs = file.read()
+
+    def update_rules_using_great_expetations_rule(self, great_expectations_rule:dict[str, Any])->dict[str, Any]:
+        messages_with_user_prompt = [
+{
+  "role": "system",
+  "content": (
+    "You are a senior data quality engineer and expert in Great Expectations (GE).\n\n"
+
+    "You are given a `great_expectations_rule` on the basis of which we need to make a rule block.\n"
+    "Your task is to make a rule block based on this new great_expectations_rule, while ensuring the updated rule is valid and consistent with Great Expectations standards mentioned in the docs.\n\n"
+
+    "### Great Expectations documentation:\n"
+    f"{self.great_expectation_docs.strip()}\n\n"
+    "You must:\n"
+    "- Verify that the updated `great_expectations_rule` is valid for the given column using the official Great Expectations documentation and the sample data provided.\n"
+    "### Sample CSV:\n"
+    "- If the rule becomes invalid or unclear, use the provided sample data (assumed to be valid) to infer the correct expectation logic.\n\n"
+    f"{self.sample_data.strip()}\n\n"
+
+    "For rule, output a JSON object with:\n"
+    "- `name`: Short descriptive name\n"
+    "- `description`: Why the rule exists, optionally referencing metadata\n"
+    "- `natural_language_rule`: Human-readable summary\n"
+    "- `great_expectations_rule`: the great_expectations_rule provided below.\n"
+    "- `type`: One of: column_exists, uniqueness, range, regex, conditional, dtype, etc.\n\n"
+    "Only return the **updated rule block JSON**. Do not include explanations or comments."
+  )
+},
+        {
+            "role": "user",
+            "content": f"### old rule block:\n{great_expectations_rule}"
+        }
+                ]
+
+        response = self.client.chat.completions.create(model="deepseek-chat", messages=messages_with_user_prompt, stream=False,)
+
+        content = response.choices[0].message.content
+        content = content.replace("```json", "").replace("```", "")
+
+        return json.loads(content)
+
+    def update_rules_using_natural_language(self, column_name:str, natural_language_rule:str) ->dict[str, Any]:
+        messages_with_user_prompt = [
+{
+  "role": "system",
+  "content": (
+    "You are a senior data quality engineer and expert in Great Expectations (GE).\n\n"
+
+    "You are given a `natural_language_rule` which needs to make a new rule, in a column provided by the user.\n"
+    "Your task is to make a rule block based on this new natural language instruction on the column also given, while ensuring the updated rule is valid and consistent with Great Expectations standards.\n\n"
+
+    "You must:\n"
+    "- use the natural language to change the rule and the rule needs to be applied to the given column\n"
+    "- If the rule becomes invalid or unclear, use the provided sample data (assumed to be valid) to infer the correct expectation logic.\n\n"
+    "### Great Expectations documentation:\n"
+    f"{self.great_expectation_docs.strip()}\n\n"
+
+    "### Sample CSV:\n"
+    f"{self.sample_data.strip()}\n\n"
+
+    "For rule, output a JSON object with:\n"
+    "- `name`: Short descriptive name\n"
+    "- `description`: Why the rule exists, optionally referencing metadata\n"
+    "- `natural_language_rule`: the natural_language_rule provided below\n"
+    "- `great_expectations_rule`: A JSON object using Great Expectations official format (`expectation_type`, `kwargs`, etc.)\n"
+    "- `type`: One of: column_exists, uniqueness, range, regex, conditional, dtype, etc.\n\n"
+    "Only return the **updated rule block JSON**. Do not include explanations or comments."
+  )
+}
+        {
+            "role": "user",
+            "content": f"### natural_language_rule:\n{natural_language_rule}"
+        },
+        {
+            "role": "user",
+            "content": f"### column_name:\n{column_name}"
+        }
+
+
+                ]
+
+        response = self.client.chat.completions.create(model="deepseek-chat", messages=messages_with_user_prompt, stream=False,)
+
+        content = response.choices[0].message.content
+        content = content.replace("```json", "").replace("```", "")
+
+        return json.loads(content)
+
 
     def get_suggested_rules(self, user_prompt: str, base_rules_json: str= "") -> dict[str, Any]:
         messages_with_user_prompt = [

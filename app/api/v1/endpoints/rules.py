@@ -1,26 +1,27 @@
-import json
 import asyncio
-from app.core.prompts import DeepSeekRuleGenerator, PromptToRule
-from app.models.dataset import Dataset
-from fastapi import APIRouter, Depends, HTTPException, status, Path
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List
+import json
 from datetime import datetime, timezone
+from typing import List
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, Path, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.prompts import DeepSeekRuleGenerator, PromptToRule
+from app.models.dataset import Dataset
 from app.models.project import Project
 from app.models.rule import Rule
 from app.models.suggested_rules import SuggestedRules
 from app.schemas.rule import (
+    AddRuleRequest,
+    AddRuleResponse,
     RuleBase,
     RuleResponse,
     RuleUpdate,
     SuggestedRulesResponse,
-    AddRuleRequest,
-    AddRuleResponse,
 )
-import pandas as pd
 
 router = APIRouter()
 
@@ -289,35 +290,87 @@ async def create_rule(rule: RuleBase, project_id: int = Path(...), db: AsyncSess
 
 @router.put("/{rule_id}", response_model=RuleResponse)
 async def update_rule(
-    rule: RuleUpdate, project_id: int = Path(...), rule_id: int = Path(...), db: AsyncSession = Depends(get_db)
+    rule: RuleUpdate,
+    project_id: int = Path(...),
+    rule_id: int = Path(...),
+    update_flag: str = "",  # Optional query param: "natural_language" or "great_expectations_rule"
+    db: AsyncSession = Depends(get_db),
 ):
-    """Update an existing rule"""
+    """Update an existing rule and optionally regenerate the rest of the rule based on a flag"""
+    print("-----------------------", update_flag)
     result = await db.execute(select(Rule).where(Rule.id == rule_id, Rule.project_id == project_id))
     db_rule = result.scalar_one_or_none()
 
     if not db_rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
-    # Update rule fields
-    if rule.name is not None:
-        db_rule.name = rule.name
-    if rule.description is not None:
-        db_rule.description = rule.description
-    if rule.natural_language_rule is not None:
-        db_rule.natural_language_rule = rule.natural_language_rule
-    if rule.great_expectations_rule is not None:
-        db_rule.great_expectations_rule = rule.great_expectations_rule
-    if rule.type is not None:
-        db_rule.type = rule.type
+    # --------------------------------------------
+    # Shared sample data loader
+    # --------------------------------------------
+    async def get_sample_data_csv(project_id: int) -> str:
+        sample_data_result = await db.execute(
+            select(Dataset).where(Dataset.project_id == project_id, Dataset.is_sample.is_(True))
+        )
+        sample_data = sample_data_result.scalar_one_or_none()
+        if not sample_data:
+            raise HTTPException(status_code=404, detail="Sample data not found")
 
-    # Set updated_at to current time
+        df = pd.read_csv(sample_data.file_path)
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Sample data file is empty")
+
+        sample_df = df.sample(min(100, len(df)), random_state=42)
+        return sample_df.to_csv(index=False)
+
+    # --------------------------------------------
+    # Handle smart update by update_flag
+    # --------------------------------------------
+    if update_flag == "natural_language" and rule.natural_language_rule:
+        sample_data_str = await get_sample_data_csv(project_id)
+        rule_generator = PromptToRule(sample_data_str)
+        if rule.great_expectations_rule:
+            regenerated = rule_generator.update_rules_using_natural_language(rule.great_expectations_rule.get("kwargs",{}).get("column",[]), rule.natural_language_rule)
+
+            db_rule.name = regenerated.get("name", db_rule.name)
+            db_rule.description = regenerated.get("description", db_rule.description)
+            db_rule.natural_language_rule = rule.natural_language_rule
+            db_rule.great_expectations_rule = regenerated.get("great_expectations_rule", db_rule.great_expectations_rule)
+            db_rule.type = regenerated.get("type", db_rule.type)
+
+    elif update_flag == "great_expectations_rule" and rule.great_expectations_rule:
+        sample_data_str = await get_sample_data_csv(project_id)
+        rule_generator = PromptToRule(sample_data_str)
+
+        regenerated = rule_generator.update_rules_using_great_expetations_rule(rule.great_expectations_rule)
+
+        db_rule.name = regenerated.get("name", db_rule.name)
+        db_rule.description = regenerated.get("description", db_rule.description)
+        db_rule.natural_language_rule = regenerated.get("natural_language_rule", db_rule.natural_language_rule)
+        db_rule.great_expectations_rule = rule.great_expectations_rule
+        db_rule.type = regenerated.get("type", db_rule.type)
+
+    else:
+        # --------------------------------------------
+        # Default: simple field updates (existing logic)
+        # --------------------------------------------
+        if rule.name is not None:
+            db_rule.name = rule.name
+        if rule.description is not None:
+            db_rule.description = rule.description
+        if rule.natural_language_rule is not None:
+            db_rule.natural_language_rule = rule.natural_language_rule
+        if rule.great_expectations_rule is not None:
+            db_rule.great_expectations_rule = rule.great_expectations_rule
+        if rule.type is not None:
+            db_rule.type = rule.type
+
+    # Timestamp
     db_rule.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(db_rule)
 
     return db_rule
-
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(project_id: int = Path(...), rule_id: int = Path(...), db: AsyncSession = Depends(get_db)):
