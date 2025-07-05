@@ -165,6 +165,14 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
     # if random chatgpt generated rules for random columns
     for rule in suggested_rules:
         column_name = rule.get("great_expectations_rule", {}).get("kwargs", {}).get("column", "")
+        function_name = rule.get("great_expectations_rule", {}).get("expectation_type", "")
+        with open("great_expectation_functions.json", encoding="utf-8") as file:
+            great_expectation_functions = json.load(file)
+
+        if function_name not in great_expectation_functions:
+            print(f"Removing rule for column {column_name} because it is not the great expectation function")
+            suggested_rules.remove(rule)
+
         if not column_name:
             continue
 

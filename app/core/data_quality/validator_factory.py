@@ -2,10 +2,8 @@
 from .csv_validator import CSVValidator
 from .json_validator import JSONValidator
 import pandas as pd
-from typing import Union, List, Dict
 from .base_validator import BaseValidator
 from .file_loader import load_file
-from pathlib import Path
 
 
 class ValidatorFactory:
@@ -18,9 +16,9 @@ class ValidatorFactory:
         elif data_got_path.endswith(".json"):
             file_type = "json"
         else:
-            raise ValueError(f"Unsupported data type: {data_got_path}")            
+            raise ValueError(f"Unsupported data type: {data_got_path}")
 
-        data = load_file(data_got_path,file_type)
+        data = load_file(data_got_path, file_type)
 
         if file_type == "csv":
             if not isinstance(data, pd.DataFrame):

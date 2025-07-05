@@ -2,6 +2,7 @@ import pandas as pd
 import json
 from typing import Union, List, Dict
 
+
 def load_file(file_path: str, file_type: str) -> Union[pd.DataFrame, List[Dict]]:
     if file_type == "csv":
         return pd.read_csv(file_path)

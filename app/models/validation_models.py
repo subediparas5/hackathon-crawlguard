@@ -1,6 +1,7 @@
 # core/models/validation_models.py
-from typing import List, Dict, Any
+from typing import Dict, Any
 from pydantic import BaseModel
+
 
 class ValidationRule(BaseModel):
     name: str
@@ -8,6 +9,7 @@ class ValidationRule(BaseModel):
     natural_language_rule: str
     great_expectations_rule: Dict[str, Any]
     type: str
+
 
 class ValidationResult(BaseModel):
     rule_name: str

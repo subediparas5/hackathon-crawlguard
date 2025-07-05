@@ -1,12 +1,9 @@
 import great_expectations as gx
 import pandas as pd
-import json
 from .base_validator import BaseValidator
 
 # from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
 
-
-import sys
 
 class CSVValidator(BaseValidator):
     def __init__(self, df: pd.DataFrame):
@@ -56,7 +53,7 @@ class CSVValidator(BaseValidator):
                 "total_records": total_records,
                 "failed_records": failed_records,
                 "success_rate": success_rate,
-                "error_message": error_message
+                "error_message": error_message,
             }
 
             results.append(rule_result)
