@@ -11,6 +11,7 @@ A FastAPI application with PostgreSQL database, containerized with Docker Compos
 - Health check endpoints
 - User management API
 - Environment-based configuration
+- **Slack Integration** - Send validation reports to Slack channels
 
 ## Prerequisites
 
@@ -45,6 +46,92 @@ docker-compose up -d
 - API: http://localhost:8000
 - API Documentation: http://localhost:8000/docs
 - PgAdmin: http://localhost:5050 (admin@crawlguard.com / admin)
+
+## Slack Integration
+
+CrawlGuard supports sending validation reports to Slack channels when data validation is completed.
+
+### Setup (Bot Token Method - Recommended)
+
+1. **Create a Slack App**:
+   - Go to https://api.slack.com/apps
+   - Click "Create New App" → "From scratch"
+   - Give your app a name (e.g., "CrawlGuard")
+   - Select your workspace
+
+2. **Configure Bot Token Scopes**:
+   - Go to "OAuth & Permissions" in your app settings
+   - Add the following scopes:
+     - `chat:write` - Send messages to channels
+     - `chat:write.public` - Send messages to public channels
+   - Click "Install to Workspace"
+   - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
+
+3. **Configure Environment Variables**:
+   ```bash
+   # Add to your .env file
+   SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+   SLACK_SIGNING_SECRET=your-signing-secret-here
+   ```
+
+4. **Invite Bot to Channels**:
+   - In Slack, invite your bot to the channels where you want to receive notifications
+   - Use: `/invite @YourBotName`
+
+### Usage
+
+1. **Link a Project to Slack**:
+   ```bash
+   # Create a project with Slack channel
+   curl -X POST "http://localhost:8000/api/v1/projects/" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "My Data Project",
+       "description": "Project with Slack notifications",
+       "slack_channel": "data-validation"
+     }'
+   ```
+
+2. **Run Validation**:
+   - Upload a dataset and create validation rules
+   - Run validation via the API
+   - Validation reports will automatically be sent to the linked Slack channel
+
+3. **Test Slack Connection**:
+   ```bash
+   # Check if Slack is configured
+   curl "http://localhost:8000/api/v1/health/slack"
+
+   # Send a test message
+   curl -X POST "http://localhost:8000/api/v1/health/slack/test?channel=general"
+   ```
+
+### Validation Report Format
+
+Slack notifications include:
+- ✅/❌ Overall validation status
+- Project and dataset names
+- Passed/failed rule counts
+- Details of failed rules (if any)
+- Timestamp of validation
+
+### Alternative: Webhook URL
+
+If you prefer a simpler setup, you can also use a webhook URL:
+
+1. **Create Webhook**:
+   - In your Slack app settings, go to "Incoming Webhooks"
+   - Toggle "Activate Incoming Webhooks" to ON
+   - Click "Add New Webhook to Workspace"
+   - Choose your channel and copy the webhook URL
+
+2. **Configure Environment**:
+   ```bash
+   # Add to your .env file
+   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your-webhook-url
+   ```
+
+**Note**: Webhook messages are simpler (text-only) compared to bot token messages (rich formatting with blocks).
 
 ## Development
 
@@ -93,6 +180,8 @@ uv run alembic upgrade head
 - `GET /health` - Health check
 - `GET /api/v1/health/` - API health check
 - `GET /api/v1/health/db` - Database health check
+- `GET /api/v1/health/slack` - Slack connectivity check
+- `POST /api/v1/health/slack/test` - Test Slack notification
 
 ### Projects
 - `GET /api/v1/projects/` - Get all projects
@@ -109,6 +198,9 @@ uv run alembic upgrade head
 - `PUT /api/v1/datasets/{dataset_id}` - Update a dataset
 - `DELETE /api/v1/datasets/{dataset_id}` - Delete a dataset
 
+### Data Validation
+- `GET /api/v1/data-validation/` - Run validation on dataset (sends Slack notifications)
+
 ## Docker Services
 
 - **app**: FastAPI application (port 8000)
@@ -123,6 +215,9 @@ Key environment variables (see `env.example`):
 - `ENVIRONMENT`: Application environment (development/production)
 - `SECRET_KEY`: Secret key for JWT tokens
 - `DEBUG`: Enable debug mode
+- `SLACK_BOT_TOKEN`: Slack bot token for notifications
+- `SLACK_SIGNING_SECRET`: Slack app signing secret
+- `SLACK_WEBHOOK_URL`: Slack webhook URL (optional)
 
 ## Project Structure
 
@@ -133,15 +228,24 @@ crawlguard/
 │   │   └── v1/
 │   │       ├── endpoints/
 │   │       │   ├── health.py
-│   │       │   └── users.py
+│   │       │   ├── projects.py
+│   │       │   ├── datasets.py
+│   │       │   ├── rules.py
+│   │       │   └── data_validation.py
 │   │       └── api.py
 │   ├── core/
 │   │   ├── config.py
-│   │   └── database.py
+│   │   ├── database.py
+│   │   ├── slack_service.py
+│   │   └── data_quality/
 │   ├── models/
-│   │   └── user.py
+│   │   ├── project.py
+│   │   ├── dataset.py
+│   │   └── rule.py
 │   ├── schemas/
-│   │   └── user.py
+│   │   ├── project.py
+│   │   ├── dataset.py
+│   │   └── rule.py
 │   └── main.py
 ├── docker-compose.yml
 ├── Dockerfile

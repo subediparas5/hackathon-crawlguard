@@ -11,6 +11,7 @@ class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     status: ProjectStatus = ProjectStatus.ACTIVE
+    slack_channel: Optional[str] = Field(None, max_length=100, description="Slack channel for notifications")
 
 
 class ProjectCreate(ProjectBase):
@@ -21,6 +22,7 @@ class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     status: Optional[ProjectStatus] = None
+    slack_channel: Optional[str] = Field(None, max_length=100, description="Slack channel for notifications")
 
 
 class ProjectResponse(ProjectBase):

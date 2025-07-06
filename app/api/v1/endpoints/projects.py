@@ -1,3 +1,4 @@
+from app.core.slack import slack_service
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -27,6 +28,7 @@ async def get_projects(db: AsyncSession = Depends(get_db)):
             "name": project.name,
             "description": project.description,
             "status": project.status,
+            "slack_channel": project.slack_channel,
             "created_at": project.created_at,
             "updated_at": project.updated_at,
             "datasets": project.datasets,
@@ -58,6 +60,7 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
         "name": project.name,
         "description": project.description,
         "status": project.status,
+        "slack_channel": project.slack_channel,
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "datasets": project.datasets,
@@ -78,8 +81,17 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
     if existing_project:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project with this name already exists")
 
+    # test if slack channel is valid
+    if project.slack_channel:
+        try:
+            await slack_service.send_simple_notification(project.slack_channel, "Test message")
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Slack channel")
+
     # Create new project
-    db_project = Project(name=project.name, description=project.description, status=project.status)
+    db_project = Project(
+        name=project.name, description=project.description, status=project.status, slack_channel=project.slack_channel
+    )
 
     db.add(db_project)
     await db.commit()
@@ -100,6 +112,7 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
         "name": db_project.name,
         "description": db_project.description,
         "status": db_project.status,
+        "slack_channel": db_project.slack_channel,
         "created_at": db_project.created_at,
         "updated_at": db_project.updated_at,
         "datasets": db_project.datasets,
@@ -126,6 +139,8 @@ async def update_project(project_id: int, project: ProjectUpdate, db: AsyncSessi
         db_project.description = project.description
     if project.status is not None:
         db_project.status = project.status
+    if project.slack_channel is not None:
+        db_project.slack_channel = project.slack_channel
 
     # Set updated_at to current time
     db_project.updated_at = datetime.now(timezone.utc)
@@ -148,6 +163,7 @@ async def update_project(project_id: int, project: ProjectUpdate, db: AsyncSessi
         "name": db_project.name,
         "description": db_project.description,
         "status": db_project.status,
+        "slack_channel": db_project.slack_channel,
         "created_at": db_project.created_at,
         "updated_at": db_project.updated_at,
         "datasets": db_project.datasets,

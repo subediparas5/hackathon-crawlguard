@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS projects (
     name VARCHAR(255) UNIQUE NOT NULL,
     description TEXT,
     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'ARCHIVED')),
+    slack_channel VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS projects (
 -- Create index for better performance
 CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_slack_channel ON projects(slack_channel);
 
 -- Insert sample data (optional)
 INSERT INTO projects (name, description, status)
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     is_sample BOOLEAN DEFAULT FALSE NOT NULL,
     columns JSONB,
     validations JSONB,
+    last_validated_at TIMESTAMP WITH TIME ZONE,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -53,3 +56,16 @@ CREATE TABLE IF NOT EXISTS rules (
 -- Create index for better performance
 CREATE INDEX IF NOT EXISTS idx_datasets_project_id ON datasets(project_id);
 CREATE INDEX IF NOT EXISTS idx_datasets_is_sample ON datasets(is_sample);
+CREATE INDEX IF NOT EXISTS idx_rules_project_id ON rules(project_id);
+
+-- Create suggested_rules table
+CREATE TABLE IF NOT EXISTS suggested_rules (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    rules JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for suggested_rules
+CREATE INDEX IF NOT EXISTS idx_suggested_rules_project_id ON suggested_rules(project_id);

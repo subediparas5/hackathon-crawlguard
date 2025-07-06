@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # AI/ML Services
     deepseek_api_key: str = ""
 
+    # Slack Integration
+    slack_bot_token: str = ""
+    slack_signing_secret: str = ""
+    slack_webhook_url: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

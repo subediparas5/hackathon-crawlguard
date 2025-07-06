@@ -1,0 +1,11 @@
+id,name,email,age,category,status,created_date
+1,John Doe,john@example.com,25,user,active,2024-01-15
+2,Jane Smith,jane@example.com,30,admin,active,2024-01-16
+3,Bob Johnson,bob@example.com,35,user,inactive,2024-01-17
+4,Alice Brown,alice@example.com,28,user,active,2024-01-18
+5,Charlie Wilson,charlie@example.com,42,admin,active,2024-01-19
+6,Diana Davis,diana@example.com,31,user,active,2024-01-20
+7,Edward Miller,edward@example.com,29,user,inactive,2024-01-21
+8,Fiona Garcia,fiona@example.com,33,admin,active,2024-01-22
+9,George Lee,george@example.com,27,user,active,2024-01-23
+10,Helen Taylor,helen@example.com,38,user,active,2024-01-24

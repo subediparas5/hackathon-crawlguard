@@ -21,6 +21,7 @@ dependencies = [
     "openai>=1.0.0",
     "great-expectations>=1.5.4",
     "numpy==1.26.4",
+    "slack-sdk>=3.26.0",
 ]
 
 [project.optional-dependencies]

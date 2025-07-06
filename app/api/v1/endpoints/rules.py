@@ -1,7 +1,8 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Callable, Any
+import time
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -26,25 +27,43 @@ from app.schemas.rule import (
 router = APIRouter()
 
 
+async def with_retries_async(func: Callable, *args, retries: int = 3, delay: float = 1.0, **kwargs) -> Any:
+    """Helper to retry async or sync functions with exponential backoff."""
+    for attempt in range(retries):
+        try:
+            if asyncio.iscoroutinefunction(func):
+                return await func(*args, **kwargs)
+            else:
+                return await asyncio.to_thread(func, *args, **kwargs)
+        except Exception:
+            if attempt == retries - 1:
+                raise
+            await asyncio.sleep(delay * (2**attempt))
+
+
 async def generate_rules_async(
     project_id: int, project_description: str, sample_data_str: str = "", sample_data_columns: List[str] | None = None
 ):
-    """Asynchronously generate rules using AI"""
+    """Asynchronously generate rules using AI, with retries and timing logs."""
     try:
         rule_generator = DeepSeekRuleGenerator(project_description=project_description)
 
-        # Run AI calls concurrently
+        # Start timing
+        t0 = time.perf_counter()
+
+        # Run AI calls concurrently with retries
         project_description_task = asyncio.create_task(
-            asyncio.to_thread(rule_generator.get_suggested_rules_from_project_description)
+            with_retries_async(rule_generator.get_suggested_rules_from_project_description, retries=3)
         )
 
         sample_data_task = None
         if sample_data_str:
             sample_data_task = asyncio.create_task(
-                asyncio.to_thread(
+                with_retries_async(
                     rule_generator.get_suggested_rules_from_sample_data,
                     sample_data_str,
                     {"columns": sample_data_columns},
+                    retries=3,
                 )
             )
 
@@ -57,6 +76,10 @@ async def generate_rules_async(
             print(f"Sample data response: {sample_data_rule_str[:200]}...")
         else:
             sample_data_rule_str = ""
+
+        # End timing
+        t1 = time.perf_counter()
+        print(f"AI rule generation took {t1-t0:.2f} seconds")
 
         # Parse results with better error handling
         project_description_rules = []
@@ -89,8 +112,8 @@ async def generate_rules_async(
 async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db)):
     """Get suggested rules for a project"""
 
-    project = await db.execute(select(Project).where(Project.id == project_id))
-    project = project.scalar_one_or_none()
+    project_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = project_result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
@@ -105,89 +128,13 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
     if suggested_rules:
         return SuggestedRulesResponse(rules=json.loads(suggested_rules.rules))
 
-    # get the sample data for the project
-    sample_data = await db.execute(select(Dataset).where(Dataset.project_id == project_id, Dataset.is_sample.is_(True)))
-    sample_data = sample_data.scalar_one_or_none()
+    # If no rules exist, trigger generation and return empty response
+    # Rules will be generated in the background
+    from app.core.rule_generator import trigger_rule_generation_for_project
 
-    sample_data_str = ""
-    sample_data_columns = None
+    asyncio.create_task(trigger_rule_generation_for_project(project_id, force_regenerate=False))
 
-    if sample_data:
-        with open(str(sample_data.file_path), encoding="utf-8") as file:
-            sample_data_str: str = file.read()
-
-        # Randomize sample data (header + 10 random rows)
-        lines = sample_data_str.splitlines()
-        if len(lines) > 11:  # More than header + 10 rows
-            import random
-
-            header = lines[0]
-            data_rows = lines[1:]
-            random_rows = random.sample(data_rows, min(10, len(data_rows)))
-            sample_data_str = "\n".join([header] + random_rows)
-
-        sample_data_columns = sample_data.columns
-
-    print("Starting to generate rules")
-
-    # Generate rules asynchronously
-    project_description = project.description if project.description else "No description provided"
-    suggested_rules = await generate_rules_async(project_id, project_description, sample_data_str, sample_data_columns)
-
-    print("Rules generated")
-    print(suggested_rules)
-
-    if not suggested_rules:
-        print("No rules generated, returning mock rules")
-        # Return mock rules as fallback
-        suggested_rules = [
-            {
-                "name": "Data Completeness Check",
-                "description": "Ensure all required fields are populated",
-                "natural_language_rule": "All required fields should not be null",
-                "great_expectations_rule": {
-                    "expectation_type": "expect_column_values_to_not_be_null",
-                    "kwargs": {"column": "required_field"},
-                },
-                "type": "completeness",
-            },
-            {
-                "name": "Data Type Validation",
-                "description": "Validate data types match expected format",
-                "natural_language_rule": "Data should be in the correct format",
-                "great_expectations_rule": {
-                    "expectation_type": "expect_column_values_to_be_of_type",
-                    "kwargs": {"column": "data_column", "type_": "string"},
-                },
-                "type": "dtype",
-            },
-        ]
-
-    # if random chatgpt generated rules for random columns
-    for rule in suggested_rules:
-        column_name = rule.get("great_expectations_rule", {}).get("kwargs", {}).get("column", "")
-        function_name = rule.get("great_expectations_rule", {}).get("expectation_type", "")
-        with open("great_expectation_functions.json", encoding="utf-8") as file:
-            great_expectation_functions = json.load(file)
-
-        if function_name not in great_expectation_functions:
-            print(f"Removing rule for column {column_name} because it is not the great expectation function")
-            suggested_rules.remove(rule)
-
-        if not column_name:
-            continue
-
-        if column_name not in sample_data_columns:
-            print(f"Removing rule for column {column_name} because it is not in the sample data")
-            suggested_rules.remove(rule)
-
-    # save the rules to the database
-    suggested_rules_obj = SuggestedRules(project_id=project_id, rules=json.dumps(suggested_rules))
-    db.add(suggested_rules_obj)
-    await db.commit()
-    await db.refresh(suggested_rules_obj)
-
-    return SuggestedRulesResponse(rules=suggested_rules)
+    return SuggestedRulesResponse(rules=[])
 
 
 @router.post("/prompt-to-rules", response_model=SuggestedRulesResponse)
@@ -239,11 +186,13 @@ async def get_rule_by_id(project_id: int = Path(...), rule_id: int = Path(...), 
 
 
 # For add rule with validation
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_rule_validation(
     rule: RuleBase, project_id: int = Path(...), is_forced=False, db: AsyncSession = Depends(get_db)
 ):
     """Create a new rule with validation"""
+    from app.core.rule_generator import remove_rule_from_suggested_rules
+
     # Use project_id from path, ignore any in body
     db_rule = Rule(
         project_id=project_id,
@@ -283,12 +232,18 @@ async def create_rule_validation(
                 db.add(db_rule)
                 await db.commit()
                 await db.refresh(db_rule)
+
+                # Remove the rule from suggested rules list
+                await remove_rule_from_suggested_rules(project_id, rule.name, db)
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Validation error: {str(e)}")
     else:
         db.add(db_rule)
         await db.commit()
         await db.refresh(db_rule)
+
+        # Remove the rule from suggested rules list even for forced creation
+        await remove_rule_from_suggested_rules(project_id, rule.name, db)
 
     return db_rule
 
@@ -308,18 +263,6 @@ async def update_rule(
 
     if not db_rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
-
-    # Update rule fields
-    if rule.name:
-        db_rule.name = rule.name
-    if rule.description:
-        db_rule.description = rule.description
-    if rule.natural_language_rule:
-        db_rule.natural_language_rule = rule.natural_language_rule
-    if rule.great_expectations_rule:
-        db_rule.great_expectations_rule = rule.great_expectations_rule
-    if rule.type:
-        db_rule.type = rule.type
 
     # --------------------------------------------
     # Shared sample data loader
@@ -388,6 +331,7 @@ async def update_rule(
     # Timestamp
     db_rule.updated_at = datetime.now(timezone.utc)
 
+    await db.flush()
     await db.commit()
     await db.refresh(db_rule)
 

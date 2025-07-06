@@ -1,4 +1,5 @@
 import csv
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -44,6 +45,7 @@ async def get_dataset(dataset_id: int, db: AsyncSession = Depends(get_db)):
 async def upload_sample_dataset(project_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     """Upload a sample dataset (first dataset) for a specific project"""
     from app.models.project import Project
+    from app.core.rule_generator import trigger_rule_generation_for_project
 
     project_result = await db.execute(select(Project).where(Project.id == project_id))
     project = project_result.scalar_one_or_none()
@@ -79,6 +81,10 @@ async def upload_sample_dataset(project_id: int, file: UploadFile = File(...), d
     db.add(db_dataset)
     await db.commit()
     await db.refresh(db_dataset)
+
+    # Trigger rule generation in the background
+    asyncio.create_task(trigger_rule_generation_for_project(project_id, force_regenerate=True))
+
     return db_dataset
 
 
@@ -112,17 +118,25 @@ async def create_dataset(project_id: int, file: UploadFile = File(...), db: Asyn
 @router.put("/{dataset_id}", response_model=DatasetResponse)
 async def update_dataset(dataset_id: int, dataset: DatasetUpdate, db: AsyncSession = Depends(get_db)):
     """Update an existing dataset"""
+    from app.core.rule_generator import trigger_rule_generation_for_project
+
     result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
     db_dataset = result.scalar_one_or_none()
 
     if not db_dataset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
+    # Track if sample dataset was changed
+    sample_dataset_changed = False
+
     # Update dataset fields
     if dataset.file_path is not None:
         db_dataset.file_path = dataset.file_path
+        # If this is a sample dataset and file path changed, trigger rule regeneration
+        if db_dataset.is_sample:
+            sample_dataset_changed = True
 
-    if dataset.is_sample:
+    if dataset.is_sample is not None:
         # if is_sample is set to True, then we need to set the other datasets for this project to False
         if dataset.is_sample:
             result = await db.execute(
@@ -132,12 +146,18 @@ async def update_dataset(dataset_id: int, dataset: DatasetUpdate, db: AsyncSessi
             for existing_dataset in datasets:
                 existing_dataset.is_sample = False
         db_dataset.is_sample = dataset.is_sample
+        # If sample status changed, trigger rule regeneration
+        sample_dataset_changed = True
 
     # Set updated_at to current time
     db_dataset.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(db_dataset)
+
+    # Trigger rule generation if sample dataset was changed
+    if sample_dataset_changed:
+        asyncio.create_task(trigger_rule_generation_for_project(db_dataset.project_id, force_regenerate=True))
 
     return db_dataset
 
