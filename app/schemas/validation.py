@@ -16,6 +16,9 @@ class ValidationRuleResult(BaseModel):
     failed_records: int = Field(..., description="Number of records that failed validation")
     success_rate: float = Field(..., description="Percentage of records that passed validation")
     error_message: Optional[str] = Field(None, description="Error message if validation failed")
+    failed_records_sample: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Sample of failed records (up to 5)"
+    )
 
 
 class ValidationSummary(BaseModel):

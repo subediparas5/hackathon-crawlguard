@@ -99,6 +99,7 @@ async def validate_data(project_id: int, dataset_id: int, db: AsyncSession = Dep
                         failed_records=result.get("failed_records", 0),
                         success_rate=result.get("success_rate", 0.0),
                         error_message=result.get("error_message"),
+                        failed_records_sample=result.get("failed_records_sample"),
                     )
                     validation_results.append(validation_result)
 
@@ -210,6 +211,7 @@ async def validate_data(project_id: int, dataset_id: int, db: AsyncSession = Dep
                 failed_records=result.get("failed_records", 0),
                 success_rate=result.get("success_rate", 0.0),
                 error_message=result.get("error_message"),
+                failed_records_sample=result.get("failed_records_sample"),
             )
             validation_results.append(validation_result)
 
@@ -260,7 +262,7 @@ async def _send_slack_notification(project: Project, dataset: Dataset, validatio
         # Count passed/failed rules from results
         if validation_results and "results" in validation_results:
             for result in validation_results["results"]:
-                if result.get("success", True):
+                if result.get("passed", False):  # Use "passed" instead of "success"
                     passed_rules += 1
                 else:
                     failed_rules += 1

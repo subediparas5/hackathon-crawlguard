@@ -1,4 +1,5 @@
 import csv
+import json
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,39 @@ router = APIRouter()
 # Create uploads directory if it doesn't exist
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def _flatten_json_keys(obj, prefix=""):
+    """
+    Recursively flatten JSON object keys using dot notation.
+
+    Args:
+        obj: JSON object to flatten
+        prefix: Current prefix for nested keys
+
+    Returns:
+        List of flattened column names
+    """
+    flattened_keys = []
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            new_prefix = f"{prefix}.{key}" if prefix else key
+
+            if isinstance(value, dict):
+                # Recursively flatten nested objects
+                flattened_keys.extend(_flatten_json_keys(value, new_prefix))
+            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                # Handle arrays of objects - flatten the first object
+                flattened_keys.extend(_flatten_json_keys(value[0], new_prefix))
+            else:
+                # Add the current key
+                flattened_keys.append(new_prefix)
+    elif isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
+        # Handle arrays of objects
+        flattened_keys.extend(_flatten_json_keys(obj[0], prefix))
+
+    return flattened_keys
 
 
 @router.get("/", response_model=List[DatasetResponse])
@@ -65,12 +99,23 @@ async def upload_sample_dataset(project_id: int, file: UploadFile = File(...), d
     content = await file.read()
     content_str = content.decode("utf-8")
 
-    # Parse columns if it's a CSV file
+    # Parse columns based on file type
+    columns = None
     if file.filename.endswith(".csv"):
         reader = csv.DictReader(content_str.splitlines())
         columns = reader.fieldnames
-    else:
-        columns = None
+    elif file.filename.endswith(".json"):
+        try:
+            json_data = json.loads(content_str)
+            if isinstance(json_data, list) and len(json_data) > 0:
+                # Extract flattened keys from the first object in the array
+                columns = list(_flatten_json_keys(json_data[0]))
+            elif isinstance(json_data, dict):
+                # For single JSON object, extract flattened top-level keys
+                columns = list(_flatten_json_keys(json_data))
+        except json.JSONDecodeError:
+            # If JSON parsing fails, set columns to None
+            columns = None
 
     # Write the file to disk
     file_path = os.path.join(UPLOAD_DIR, f"sample_{file.filename}")
@@ -86,6 +131,30 @@ async def upload_sample_dataset(project_id: int, file: UploadFile = File(...), d
     asyncio.create_task(trigger_rule_generation_for_project(project_id, force_regenerate=True))
 
     return db_dataset
+
+
+async def trigger_validation_for_dataset(project_id: int, dataset_id: int) -> None:
+    """
+    Trigger validation for a dataset as a background task.
+    This function can be called without awaiting to avoid blocking the main request.
+    """
+
+    async def _run():
+        try:
+            from app.api.v1.endpoints.data_validation import validate_data
+            from app.core.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                # Call the validation function
+                await validate_data(project_id=project_id, dataset_id=dataset_id, db=db)
+        except Exception as e:
+            print(f"Error during validation for dataset {dataset_id} in project {project_id}: {e}")
+
+    try:
+        asyncio.create_task(_run())
+        print(f"Triggered background validation for dataset {dataset_id} in project {project_id}")
+    except Exception as e:
+        print(f"Error triggering validation for dataset {dataset_id} in project {project_id}: {e}")
 
 
 @router.post("/", response_model=DatasetResponse, status_code=status.HTTP_201_CREATED)
@@ -112,6 +181,10 @@ async def create_dataset(project_id: int, file: UploadFile = File(...), db: Asyn
     db.add(db_dataset)
     await db.commit()
     await db.refresh(db_dataset)
+
+    # Trigger validation in the background
+    asyncio.create_task(trigger_validation_for_dataset(project_id, db_dataset.id))
+
     return db_dataset
 
 

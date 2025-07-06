@@ -69,11 +69,11 @@ async def generate_rules_async(
 
         # Wait for both tasks to complete
         project_description_rule_str = await project_description_task
-        print(f"Project description response: {project_description_rule_str[:200]}...")
+        print(f"Project description response: {project_description_rule_str}")
 
         if sample_data_task:
             sample_data_rule_str = await sample_data_task
-            print(f"Sample data response: {sample_data_rule_str[:200]}...")
+            print(f"Sample data response: {sample_data_rule_str}")
         else:
             sample_data_rule_str = ""
 
@@ -125,8 +125,16 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
         .limit(1)
     )
     suggested_rules = result.scalar_one_or_none()
+
+    # get rules of the project
+    result = await db.execute(select(Rule).where(Rule.project_id == project_id))
+    rules = result.scalars().all()
+
     if suggested_rules:
         return SuggestedRulesResponse(rules=json.loads(suggested_rules.rules))
+
+    if rules:
+        return SuggestedRulesResponse(rules=[])
 
     # If no rules exist, trigger generation and return empty response
     # Rules will be generated in the background
@@ -138,7 +146,7 @@ async def get_suggested_rules(project_id: int, db: AsyncSession = Depends(get_db
 
 
 @router.post("/prompt-to-rules", response_model=SuggestedRulesResponse)
-async def prompt_to_rules(project_id: int = Path(...), prompt: str = "", db: AsyncSession = Depends(get_db)):
+async def prompt_to_rules(project_id: int, prompt: str = "", db: AsyncSession = Depends(get_db)):
     """Convert a natural language prompt to rules"""
 
     # get the sample data for the project
@@ -163,7 +171,69 @@ async def prompt_to_rules(project_id: int = Path(...), prompt: str = "", db: Asy
     rule_generator = PromptToRule(sample_data_str)
     response = rule_generator.get_suggested_rules(user_prompt=prompt)
 
-    return SuggestedRulesResponse(rules=response)
+    # Handle different response formats
+    if isinstance(response, dict):
+        response = [response]
+    elif not isinstance(response, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to generate rules")
+
+    # Filter and validate rules before saving
+    valid_rules = []
+    for rule in response:
+        try:
+            # Handle different rule formats from AI
+            if "expectation_type" in rule and "kwargs" in rule:
+                # AI returned direct Great Expectations format
+                ge_rule = {"expectation_type": rule["expectation_type"], "kwargs": rule["kwargs"]}
+                # Create a proper rule structure
+                rule = {
+                    "name": f"Generated Rule - {rule['expectation_type']}",
+                    "description": f"Auto-generated rule for {rule['expectation_type']}",
+                    "natural_language_rule": f"Validate {rule['expectation_type']}",
+                    "great_expectations_rule": ge_rule,
+                    "type": "validation",
+                }
+            elif not rule.get("great_expectations_rule"):
+                print(f"Skipping rule without great_expectations_rule: {rule}")
+                continue
+            else:
+                # Standard format with great_expectations_rule wrapper
+                ge_rule = rule.get("great_expectations_rule", {})
+
+            # Validate rule structure
+            if not isinstance(ge_rule, dict) or "expectation_type" not in ge_rule:
+                print(f"Skipping rule with invalid great_expectations_rule structure: {rule}")
+                continue
+
+            # Try to validate the rule
+            validator = ValidatorFactory.create_validator(str(sample_data.file_path))
+            validation_results = validator.validate_rules([rule])
+            if not validation_results:
+                print(f"Skipping rule that failed validation: {rule}")
+                continue
+
+            # Rule is valid, add to database
+            db_rule = Rule(
+                project_id=project_id,
+                name=rule.get("name", "Generated Rule"),
+                description=rule.get("description", ""),
+                natural_language_rule=prompt,
+                great_expectations_rule=rule.get("great_expectations_rule", {}),
+                type=rule.get("type", "validation"),
+            )
+
+            db.add(db_rule)
+            valid_rules.append(rule)
+
+        except Exception as e:
+            print(f"Error processing rule {rule}: {e}")
+            continue
+
+    # Commit all valid rules at once
+    if valid_rules:
+        await db.commit()
+
+    return SuggestedRulesResponse(rules=valid_rules)
 
 
 @router.get("/", response_model=List[RuleResponse])
@@ -340,14 +410,23 @@ async def update_rule(
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(project_id: int = Path(...), rule_id: int = Path(...), db: AsyncSession = Depends(get_db)):
-    """Delete a rule"""
-    result = await db.execute(select(Rule).where(Rule.id == rule_id, Rule.project_id == project_id))
+    """Soft delete a rule"""
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        select(Rule).where(Rule.id == rule_id, Rule.project_id == project_id, Rule.is_deleted.is_(False))
+    )
     db_rule = result.scalar_one_or_none()
 
     if not db_rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
-    await db.delete(db_rule)
+    # Soft delete: mark as deleted and set deleted timestamp
+    db_rule.is_deleted = True
+    db_rule.deleted_at = datetime.now(timezone.utc)
+    db_rule.updated_at = datetime.now(timezone.utc)
+
+    await db.flush()
     await db.commit()
 
     return None

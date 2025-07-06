@@ -205,7 +205,7 @@ Validation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 ],
             },
             # Progress bar
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Progress:* {progress_bar}"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Overall Success:* {progress_bar}"}},
             # Detailed results
             {
                 "type": "section",
@@ -274,10 +274,18 @@ Validation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         try:
             results = validation_results.get("results", [])
             for result in results:
-                if not result.get("success", True):
-                    rule_name = result.get("expectation_config", {}).get("kwargs", {}).get("column", "Unknown")
-                    details = result.get("result", {}).get("unexpected_percent", 0)
-                    failed_rules.append((rule_name, f"{details}% unexpected values"))
+                if not result.get("passed", False):  # Use "passed" instead of "success"
+                    rule_name = result.get("rule_name", "Unknown")
+                    failed_records = result.get("failed_records", 0)
+                    total_records = result.get("total_records", 0)
+                    error_message = result.get("error_message", "")
+
+                    if failed_records > 0:
+                        details = f"{failed_records}/{total_records} records failed"
+                    else:
+                        details = error_message or "Validation failed"
+
+                    failed_rules.append((rule_name, details))
         except Exception as e:
             logger.error(f"Error extracting failed rules: {str(e)}")
 

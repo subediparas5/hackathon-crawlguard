@@ -279,7 +279,15 @@ class PromptToRule:
     "- `natural_language_rule`: Human-readable summary\n"
     "- `great_expectations_rule`: the great_expectations_rule provided below.\n"
     "- `type`: One of: column_exists, uniqueness, range, regex, conditional, dtype, etc.\n\n"
-    "Only return the **updated rule block JSON**. Do not include explanations or comments."
+    "Only return the **updated rule block JSON**. Do not include explanations or comments.\n\n"
+    "IMPORTANT: DO NOT INCLUDE DUPLICATE RULES. If there is a rule which checks same thing\n"
+    "if there is a rule which checks length of a field, dont suggest rule which checks for null values\n"
+    "if there is a rule which checks for null values, dont suggest rule which checks for length of a field\n"
+    "if there is a rule which checks for uniqueness, dont suggest rule which checks for null values\n"
+    "if there is a rule which checks for null values, dont suggest rule which checks for uniqueness\n"
+    "if there is a rule which checks for uniqueness, dont suggest rule which checks for length of a field\n"
+    "if there is a rule which checks for length of a field, dont suggest rule which checks for uniqueness\n"
+    "if there is a rule which checks for uniqueness, dont suggest rule which checks for null values\n"
   )
 },
         {

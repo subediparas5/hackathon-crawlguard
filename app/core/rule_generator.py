@@ -1,5 +1,6 @@
 import json
 import asyncio
+import random
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -64,15 +65,32 @@ async def generate_and_save_rules_for_project(
             with open(str(sample_data.file_path), encoding="utf-8") as file:
                 sample_data_str = file.read()
 
-            # Randomize sample data (header + 10 random rows)
-            lines = sample_data_str.splitlines()
-            if len(lines) > 11:  # More than header + 10 rows
-                import random
-
-                header = lines[0]
-                data_rows = lines[1:]
-                random_rows = random.sample(data_rows, min(10, len(data_rows)))
-                sample_data_str = "\n".join([header] + random_rows)
+            # Handle different file types
+            file_path = str(sample_data.file_path)
+            if file_path.endswith(".csv"):
+                # For CSV files: Randomize sample data (header + 10 random rows)
+                lines = sample_data_str.splitlines()
+                if len(lines) > 11:  # More than header + 10 rows
+                    header = lines[0]
+                    data_rows = lines[1:]
+                    random_rows = random.sample(data_rows, min(10, len(data_rows)))
+                    sample_data_str = "\n".join([header] + random_rows)
+            elif file_path.endswith(".json"):
+                # For JSON files: Sample from array or use single object
+                try:
+                    json_data = json.loads(sample_data_str)
+                    if isinstance(json_data, list):
+                        # For JSON arrays, sample up to 10 items
+                        if len(json_data) > 10:
+                            sample_data_str = json.dumps(random.sample(json_data, 10), indent=2)
+                        else:
+                            sample_data_str = json.dumps(json_data, indent=2)
+                    elif isinstance(json_data, dict):
+                        # For single JSON object, use as is
+                        sample_data_str = json.dumps(json_data, indent=2)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing JSON file: {e}")
+                    return None
 
             sample_data_columns = sample_data.columns
         except Exception as e:
@@ -143,6 +161,19 @@ async def generate_and_save_rules_for_project(
                     continue
 
             suggested_rules = filtered_rules
+
+        # if already suggested rules exist, dont save new rules
+        existing_rules_result = await db.execute(
+            select(SuggestedRules)
+            .where(SuggestedRules.project_id == project_id)
+            .order_by(SuggestedRules.created_at.desc())
+            .limit(1)
+        )
+
+        existing_rules = existing_rules_result.scalar_one_or_none()
+        if existing_rules:
+            print(f"Suggested rules already exist for project {project_id}, skipping generation")
+            return existing_rules
 
         # Save rules to database
         suggested_rules_obj = SuggestedRules(project_id=project_id, rules=json.dumps(suggested_rules))
