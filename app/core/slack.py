@@ -258,19 +258,57 @@ Validation completed at {nepal_time.strftime('%Y-%m-%d %H:%M:%S')} (NPT)
 
         return blocks
 
-    def _create_progress_bar(self, percentage: float) -> str:
-        """Create a visual progress bar"""
-        filled_blocks = int(percentage / 10)
-        empty_blocks = 10 - filled_blocks
+    def _create_progress_bar(
+        self,
+        percentage: float,
+        full_block: str = "🟩",
+        partial_block: str = "🟨",
+        empty_block: str = "⬜",
+        length: int = 10,
+        full_completion_emoji: str = "",
+        zero_completion_emoji: str = "",
+    ) -> str:
+        """Create a visual progress bar with partial blocks for smoother granularity.
 
+        Args:
+            percentage: Completion percentage (0-100).
+            full_block: Emoji for fully completed segments (default: 🟩).
+            partial_block: Emoji for partially completed segments (default: 🟨).
+            empty_block: Emoji for empty segments (default: ⬜).
+            length: Total length of the progress bar (default: 10).
+            full_completion_emoji: Override for 100% completion (optional).
+            zero_completion_emoji: Override for 0% completion (optional).
+
+        Returns:
+            str: Progress bar with full/partial/empty blocks.
+        """
+        # Clamp percentage and calculate exact filled blocks
+        percentage = max(0, min(100, percentage))
+        exact_filled = (percentage / 100) * length
+
+        # Handle full/zero completion overrides
         if percentage == 100:
-            return "🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩"
-        elif percentage == 0:
-            return "⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜"
+            return full_completion_emoji * length if full_completion_emoji else full_block * length
+        if percentage == 0:
+            return zero_completion_emoji * length if zero_completion_emoji else empty_block * length
+
+        # Split into full and partial blocks
+        full_blocks = int(exact_filled)
+        partial_progress = exact_filled - full_blocks  # Fractional part (0.0 to 0.99)
+
+        # Determine if the last block should be partial
+        bar = []
+        bar.extend([full_block] * full_blocks)
+
+        if partial_progress > 0:
+            bar.append(partial_block)
+            remaining_empty = length - full_blocks - 1
         else:
-            filled = "🟩" * filled_blocks
-            empty = "⬜" * empty_blocks
-            return filled + empty
+            remaining_empty = length - full_blocks
+
+        bar.extend([empty_block] * remaining_empty)
+
+        return "".join(bar)
 
     def _extract_failed_rules(self, validation_results: Dict) -> List[tuple]:
         """Extract failed rules from validation results"""
