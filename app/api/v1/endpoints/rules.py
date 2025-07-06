@@ -155,9 +155,22 @@ async def prompt_to_rules(project_id: int, prompt: str = "", db: AsyncSession = 
     if not sample_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample data not found")
 
-    # Read the actual file content
-    with open(str(sample_data.file_path), encoding="utf-8") as file:
-        df = pd.read_csv(file)
+    # Read the actual file content based on file type
+    file_path = str(sample_data.file_path)
+    file_extension = file_path.lower().split(".")[-1]
+
+    try:
+        if file_extension == "json":
+            # Read JSON file
+            df = pd.read_json(file_path)
+        elif file_extension == "csv":
+            # Read CSV file
+            with open(file_path, encoding="utf-8") as file:
+                df = pd.read_csv(file)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_extension}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading sample data file: {str(e)}")
 
     # Check if DataFrame has data before sampling
     if len(df) == 0:
@@ -345,12 +358,27 @@ async def update_rule(
         if not sample_data:
             raise HTTPException(status_code=404, detail="Sample data not found")
 
-        df = pd.read_csv(sample_data.file_path)
-        if df.empty:
-            raise HTTPException(status_code=400, detail="Sample data file is empty")
+        # Determine file type based on extension
+        file_path = str(sample_data.file_path)
+        file_extension = file_path.lower().split(".")[-1]
 
-        sample_df = df.sample(min(100, len(df)), random_state=42)
-        return sample_df.to_csv(index=False)
+        try:
+            if file_extension == "json":
+                # Read JSON file
+                df = pd.read_json(file_path)
+            elif file_extension == "csv":
+                # Read CSV file
+                df = pd.read_csv(file_path)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_extension}")
+
+            if df.empty:
+                raise HTTPException(status_code=400, detail="Sample data file is empty")
+
+            sample_df = df.sample(min(100, len(df)), random_state=42)
+            return sample_df.to_csv(index=False)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error reading sample data file: {str(e)}")
 
     # --------------------------------------------
     # Handle smart update by update_flag
