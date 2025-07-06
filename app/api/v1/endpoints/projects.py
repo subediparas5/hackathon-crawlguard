@@ -5,12 +5,45 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime, timezone
+import json
 
 from app.core.database import get_db
 from app.models.project import Project
-from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate, ProjectSummary
 
 router = APIRouter()
+
+
+def get_cached_summary(project: Project) -> ProjectSummary:
+    """Get cached summary from project or return default if not available"""
+    if project.summary:
+        try:
+            # Parse cached summary
+            if isinstance(project.summary, str):
+                summary_data = json.loads(project.summary)
+            else:
+                summary_data = project.summary
+
+            return ProjectSummary(
+                total_datasets=summary_data.get("total_datasets", 0),
+                total_rules=summary_data.get("total_rules", 0),
+                total_issues=summary_data.get("total_issues", 0),
+                overall_success_rate=summary_data.get("overall_success_rate", 0.0),
+                datasets_with_issues=summary_data.get("datasets_with_issues", 0),
+                last_validation_date=summary_data.get("last_validation_date"),
+            )
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    # Return default summary if no cached data
+    return ProjectSummary(
+        total_datasets=len(project.datasets),
+        total_rules=len([rule for rule in project.rules if not rule.is_deleted]),
+        total_issues=0,
+        overall_success_rate=0.0,
+        datasets_with_issues=0,
+        last_validation_date=None,
+    )
 
 
 @router.get("/", response_model=List[ProjectResponse])
@@ -19,10 +52,14 @@ async def get_projects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).options(selectinload(Project.datasets), selectinload(Project.rules)))
     projects = result.scalars().all()
 
-    # Convert to response models with has_sample field
+    # Convert to response models with has_sample field and summary
     project_responses = []
     for project in projects:
         has_sample = any(dataset.is_sample for dataset in project.datasets)
+
+        # Get cached project summary
+        summary = get_cached_summary(project)
+
         project_dict = {
             "id": project.id,
             "name": project.name,
@@ -34,6 +71,7 @@ async def get_projects(db: AsyncSession = Depends(get_db)):
             "datasets": project.datasets,
             "rules": project.rules,
             "has_sample": has_sample,
+            "summary": summary,
         }
         project_responses.append(ProjectResponse(**project_dict))
 
@@ -53,8 +91,10 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    # Calculate has_sample field
+    # Calculate has_sample field and summary
     has_sample = any(dataset.is_sample for dataset in project.datasets)
+    summary = get_cached_summary(project)
+
     project_dict = {
         "id": project.id,
         "name": project.name,
@@ -66,6 +106,7 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
         "datasets": project.datasets,
         "rules": project.rules,
         "has_sample": has_sample,
+        "summary": summary,
     }
 
     return ProjectResponse(**project_dict)
@@ -105,8 +146,9 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
     )
     db_project = result.scalar_one()
 
-    # Calculate has_sample field
+    # Calculate has_sample field and summary
     has_sample = any(dataset.is_sample for dataset in db_project.datasets)
+    summary = get_cached_summary(db_project)
     project_dict = {
         "id": db_project.id,
         "name": db_project.name,
@@ -118,6 +160,7 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
         "datasets": db_project.datasets,
         "rules": db_project.rules,
         "has_sample": has_sample,
+        "summary": summary,
     }
 
     return ProjectResponse(**project_dict)
@@ -156,8 +199,9 @@ async def update_project(project_id: int, project: ProjectUpdate, db: AsyncSessi
     )
     db_project = result.scalar_one()
 
-    # Calculate has_sample field
+    # Calculate has_sample field and summary
     has_sample = any(dataset.is_sample for dataset in db_project.datasets)
+    summary = get_cached_summary(db_project)
     project_dict = {
         "id": db_project.id,
         "name": db_project.name,
@@ -169,6 +213,7 @@ async def update_project(project_id: int, project: ProjectUpdate, db: AsyncSessi
         "datasets": db_project.datasets,
         "rules": db_project.rules,
         "has_sample": has_sample,
+        "summary": summary,
     }
 
     return ProjectResponse(**project_dict)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -20,6 +20,7 @@ class Project(Base):
     description = Column(Text, nullable=True)
     status = Column(Enum(ProjectStatus), default=ProjectStatus.ACTIVE, nullable=False)
     slack_channel = Column(String(100), nullable=True, index=True)
+    summary = Column(JSON, nullable=True, comment="Cached project summary statistics")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

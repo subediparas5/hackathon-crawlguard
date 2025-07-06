@@ -1,5 +1,6 @@
 import great_expectations as gx
 import pandas as pd
+import numpy as np
 from typing import Optional
 from .base_validator import BaseValidator
 
@@ -90,7 +91,9 @@ class CSVValidator(BaseValidator):
                 "failed_records_sample": failed_records_sample,
             }
 
-            results.append(rule_result)
+            # Clean the result to ensure JSON serializability
+            cleaned_result = self._clean_validation_result(rule_result)
+            results.append(cleaned_result)
 
         return results
 
@@ -153,7 +156,11 @@ class CSVValidator(BaseValidator):
                     # Get up to 5 failed records by index
                     sample_indices = indices[:5]
                     try:
-                        sample_records = self.df.iloc[sample_indices].to_dict(orient="records")
+                        # Handle NaN values properly when converting to dict
+                        sample_df = self.df.iloc[sample_indices]
+                        sample_records = (
+                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(None).to_dict(orient="records")
+                        )
                         failed_samples.extend(sample_records)
                     except Exception:
                         pass
@@ -170,7 +177,11 @@ class CSVValidator(BaseValidator):
                 if indices:
                     sample_indices = indices[:5]
                     try:
-                        sample_records = self.df.iloc[sample_indices].to_dict(orient="records")
+                        # Handle NaN values properly when converting to dict
+                        sample_df = self.df.iloc[sample_indices]
+                        sample_records = (
+                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(None).to_dict(orient="records")
+                        )
                         failed_samples.extend(sample_records)
                     except Exception:
                         pass

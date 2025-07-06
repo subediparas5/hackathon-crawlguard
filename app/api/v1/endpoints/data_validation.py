@@ -11,6 +11,7 @@ from app.models.dataset import Dataset
 from app.models.rule import Rule
 from app.models.project import Project
 from app.schemas.validation import ValidationResponse, ValidationSummary, ValidationRuleResult
+from app.core.project_summary import update_project_summary
 
 
 router = APIRouter()
@@ -172,9 +173,19 @@ async def validate_data(project_id: int, dataset_id: int, db: AsyncSession = Dep
         if not dataset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
-        dataset.validations = results
-        dataset.last_validated_at = datetime.now(timezone.utc)
+        dataset.validations = results  # type: ignore
+        dataset.last_validated_at = datetime.now(timezone.utc)  # type: ignore
         await db.commit()
+
+        # Update project summary after validation
+        try:
+            await update_project_summary(project_id, db)
+        except Exception as e:
+            # Log error but don't fail the validation
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to update project summary: {str(e)}")
 
         # Calculate summary statistics
         total_rules = len(results)
@@ -228,12 +239,12 @@ async def validate_data(project_id: int, dataset_id: int, db: AsyncSession = Dep
         # Extract dataset name from file path
         dataset_name = dataset_project.file_path.split("/")[-1] if dataset_project.file_path else "Unknown Dataset"
 
-        # Send Slack notification if project has a linked channel
-        if project.slack_channel:
+        # Send Slack notification if project has a linked channel and dataset is not a sample
+        if project.slack_channel and not dataset_project.is_sample:  # type: ignore
             await _send_slack_notification(
                 project=project,
                 dataset=dataset_project,
-                validation_results={"results": results, "summary": summary.dict()},
+                validation_results={"results": results, "summary": summary.model_dump()},
                 rules=rules,
             )
 
