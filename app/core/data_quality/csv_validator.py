@@ -57,7 +57,7 @@ class CSVValidator(BaseValidator):
                     error_message = None
 
                 # Extract failed records sample if validation failed
-                if not passed and failed_records > 0:
+                if not passed:
                     failed_records_sample = self._extract_failed_records_sample(validation_result, kwargs)
 
             except Exception as e:
@@ -159,11 +159,11 @@ class CSVValidator(BaseValidator):
                         # Handle NaN values properly when converting to dict
                         sample_df = self.df.iloc[sample_indices]
                         sample_records = (
-                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(None).to_dict(orient="records")
+                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(value=None).to_dict(orient="records")
                         )
                         failed_samples.extend(sample_records)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error extracting failed samples from indices: {e}")
 
             # Method 2: Use partial_unexpected_index_list
             if not failed_samples and partial_unexpected_index_list and hasattr(self, "df"):
@@ -180,11 +180,11 @@ class CSVValidator(BaseValidator):
                         # Handle NaN values properly when converting to dict
                         sample_df = self.df.iloc[sample_indices]
                         sample_records = (
-                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(None).to_dict(orient="records")
+                            sample_df.replace([np.inf, -np.inf], np.nan).fillna(value=None).to_dict(orient="records")
                         )
                         failed_samples.extend(sample_records)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error extracting partial unexpected index samples: {e}")
 
             # Method 3: Use unexpected_values directly
             if not failed_samples and unexpected_values:
