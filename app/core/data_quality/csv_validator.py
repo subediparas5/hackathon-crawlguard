@@ -66,6 +66,7 @@ class CSVValidator(BaseValidator):
                         df_failed = self.df.loc[sample]
                         failed_records_sample = df_failed.to_dict(orient="records")
                     except Exception:
+                        failed_records_sample = None
                         print("Erro getting sample")            
 
                     # failed_records_sample = self._extract_failed_records_sample(validation_result, kwargs)
