@@ -4,6 +4,8 @@ import numpy as np
 from typing import Optional
 from .base_validator import BaseValidator
 
+import sys
+
 # from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
 
 
@@ -58,7 +60,15 @@ class CSVValidator(BaseValidator):
 
                 # Extract failed records sample if validation failed
                 if not passed:
-                    failed_records_sample = self._extract_failed_records_sample(validation_result, kwargs)
+                    try: 
+                        # Get samples
+                        sample = validation_result.result.get("partial_unexpected_index_list", [])[:5]
+                        df_failed = self.df.loc[sample]
+                        failed_records_sample = df_failed.to_dict(orient="records")
+                    except Exception:
+                        print("Erro getting sample")            
+
+                    # failed_records_sample = self._extract_failed_records_sample(validation_result, kwargs)
 
             except Exception as e:
                 passed = False
