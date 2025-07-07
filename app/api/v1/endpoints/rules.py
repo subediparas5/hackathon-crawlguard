@@ -438,21 +438,26 @@ async def update_rule(
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(project_id: int = Path(...), rule_id: int = Path(...), db: AsyncSession = Depends(get_db)):
-    """Soft delete a rule"""
+    """Toggle delete a rule (soft delete/restore)"""
     from datetime import datetime, timezone
 
-    result = await db.execute(
-        select(Rule).where(Rule.id == rule_id, Rule.project_id == project_id, Rule.is_deleted.is_(False))
-    )
+    result = await db.execute(select(Rule).where(Rule.id == rule_id, Rule.project_id == project_id))
     db_rule = result.scalar_one_or_none()
 
     if not db_rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
 
-    # Soft delete: mark as deleted and set deleted timestamp
-    db_rule.is_deleted = True
-    db_rule.deleted_at = datetime.now(timezone.utc)
-    db_rule.updated_at = datetime.now(timezone.utc)
+    # Toggle delete: if already deleted, restore it; otherwise, soft delete it
+    if getattr(db_rule, "is_deleted", False):
+        # Restore the rule
+        setattr(db_rule, "is_deleted", False)
+        setattr(db_rule, "deleted_at", None)
+        setattr(db_rule, "updated_at", datetime.now(timezone.utc))
+    else:
+        # Soft delete the rule
+        setattr(db_rule, "is_deleted", True)
+        setattr(db_rule, "deleted_at", datetime.now(timezone.utc))
+        setattr(db_rule, "updated_at", datetime.now(timezone.utc))
 
     await db.flush()
     await db.commit()
