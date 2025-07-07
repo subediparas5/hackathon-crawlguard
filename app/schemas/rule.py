@@ -28,6 +28,8 @@ class RuleResponse(RuleBase):
 
     id: int
     project_id: int
+    is_deleted: bool = Field(..., description="Whether the rule is soft deleted")
+    deleted_at: Optional[datetime] = Field(None, description="Timestamp when the rule was deleted")
     created_at: datetime
     updated_at: datetime
 
