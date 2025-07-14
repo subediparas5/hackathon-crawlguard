@@ -4,7 +4,6 @@ import numpy as np
 from typing import Optional
 from .base_validator import BaseValidator
 
-import sys
 
 # from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
 
@@ -60,14 +59,14 @@ class CSVValidator(BaseValidator):
 
                 # Extract failed records sample if validation failed
                 if not passed:
-                    try: 
+                    try:
                         # Get samples
                         sample = validation_result.result.get("partial_unexpected_index_list", [])[:5]
                         df_failed = self.df.loc[sample]
                         failed_records_sample = df_failed.to_dict(orient="records")
-                    except Exception:
+                    except Exception as e:
                         failed_records_sample = None
-                        print("Erro getting sample")            
+                        print(f"Error getting sample: {e}")
 
                     # failed_records_sample = self._extract_failed_records_sample(validation_result, kwargs)
 
@@ -103,8 +102,26 @@ class CSVValidator(BaseValidator):
             }
 
             # Clean the result to ensure JSON serializability
-            cleaned_result = self._clean_validation_result(rule_result)
-            results.append(cleaned_result)
+            try:
+                cleaned_result = self._clean_validation_result(rule_result)
+                results.append(cleaned_result)
+            except Exception as e:
+                print(f"Error cleaning validation result: {e}")
+                # Fallback to a minimal safe result
+                safe_result = {
+                    "rule_name": rule.get("name", exp_type),
+                    "natural_language_rule": rule.get("natural_language_rule", ""),
+                    "passed": passed,
+                    "expectation_type": exp_type,
+                    "kwargs": rule["great_expectations_rule"]["kwargs"],
+                    "columns": columns,
+                    "total_records": total_records,
+                    "failed_records": failed_records,
+                    "success_rate": success_rate,
+                    "error_message": error_message,
+                    "failed_records_sample": None,  # Remove problematic sample
+                }
+                results.append(safe_result)
 
         return results
 

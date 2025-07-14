@@ -114,8 +114,25 @@ class JSONValidator(BaseValidator):
             }
 
             # Clean the result to ensure JSON serializability
-            cleaned_result = self._clean_validation_result(rule_result)
-            results.append(cleaned_result)
+            try:
+                cleaned_result = self._clean_validation_result(rule_result)
+                results.append(cleaned_result)
+            except Exception as e:
+                print(f"Error cleaning validation result: {e}")
+                # Fallback to a minimal safe result
+                safe_result = {
+                    "rule_name": rule.get("name", exp_type),
+                    "natural_language_rule": rule.get("natural_language_rule", ""),
+                    "passed": passed,
+                    "expectation_type": exp_type,
+                    "kwargs": kwargs,
+                    "total_records": total_records,
+                    "failed_records": failed_records,
+                    "success_rate": success_rate,
+                    "error_message": error_message,
+                    "failed_records_sample": None,  # Remove problematic sample
+                }
+                results.append(safe_result)
 
         return results
 

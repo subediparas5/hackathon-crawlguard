@@ -51,25 +51,29 @@ class BaseValidator(ABC):
             if key == "failed_records_sample" and value is not None:
                 # Ensure failed records sample is serializable
                 cleaned_value = []
-                for record in value:
-                    if isinstance(record, dict):
-                        cleaned_record = {}
-                        for k, v in record.items():
-                            # Handle NaN values specifically
-                            if isinstance(v, (pd.Series, pd.DataFrame)):
-                                cleaned_record[k] = self._ensure_json_serializable(v)
-                            elif isinstance(v, (np.floating, np.integer)):
-                                if isinstance(v, np.floating) and np.isnan(v):
-                                    cleaned_record[k] = None
+                try:
+                    for record in value:
+                        if isinstance(record, dict):
+                            cleaned_record = {}
+                            for k, v in record.items():
+                                # Handle NaN values specifically
+                                if isinstance(v, (pd.Series, pd.DataFrame)):
+                                    cleaned_record[k] = self._ensure_json_serializable(v)
+                                elif isinstance(v, (np.floating, np.integer)):
+                                    if isinstance(v, np.floating) and np.isnan(v):
+                                        cleaned_record[k] = None
+                                    else:
+                                        cleaned_record[k] = float(v) if isinstance(v, np.floating) else int(v)
+                                elif hasattr(v, "to_dict"):
+                                    cleaned_record[k] = v.to_dict()
                                 else:
-                                    cleaned_record[k] = float(v) if isinstance(v, np.floating) else int(v)
-                            elif hasattr(v, "to_dict"):
-                                cleaned_record[k] = v.to_dict()
-                            else:
-                                cleaned_record[k] = v
-                        cleaned_value.append(cleaned_record)
-                    else:
-                        cleaned_value.append(str(record))
+                                    cleaned_record[k] = v
+                            cleaned_value.append(cleaned_record)
+                        else:
+                            cleaned_value.append(str(record))
+                except Exception as e:
+                    print(f"Error cleaning failed_records_sample: {e}")
+                    cleaned_value = []  # Fallback to empty list
                 cleaned_result[key] = cleaned_value
             else:
                 cleaned_result[key] = self._ensure_json_serializable(value)
@@ -79,7 +83,8 @@ class BaseValidator(ABC):
             import json
 
             json.dumps(cleaned_result)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            print(f"JSON serialization failed: {e}")
             # If serialization fails, create a minimal safe version
             safe_result = {
                 "rule_name": cleaned_result.get("rule_name", "Unknown"),
