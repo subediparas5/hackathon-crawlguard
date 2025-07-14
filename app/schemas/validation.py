@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
 
 
@@ -45,7 +45,9 @@ class ValidationResponse(BaseModel):
     results: List[ValidationRuleResult] = Field(..., description="Detailed results for each rule")
     status: str = Field(..., description="Overall validation status (Passed/Failed/Imperfect)")
 
-    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
+    @field_serializer("validation_timestamp")
+    def serialize_datetime(self, value: datetime) -> str | None:
+        return value.isoformat() if value else None
 
 
 class ValidationRule(BaseModel):
