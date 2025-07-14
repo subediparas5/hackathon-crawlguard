@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 
@@ -45,8 +45,7 @@ class ValidationResponse(BaseModel):
     results: List[ValidationRuleResult] = Field(..., description="Detailed results for each rule")
     status: str = Field(..., description="Overall validation status (Passed/Failed/Imperfect)")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ValidationRule(BaseModel):
